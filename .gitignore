@@ -1,0 +1,45 @@
+# ─── Gradle ───────────────────────────────
+.gradle/
+build/
+bin/
+out/
+
+# ─── 환경변수 (절대 커밋 금지) ─────────────
+.env
+.env.local
+.env.*.local
+
+# ─── Node.js (admin-web) ───────────────────
+node_modules/
+dist/
+.vite/
+
+# ─── Flutter (mobile-app) ──────────────────
+mobile-app/.dart_tool/
+mobile-app/.flutter-plugins
+mobile-app/.flutter-plugins-dependencies
+mobile-app/.packages
+mobile-app/build/
+mobile-app/pubspec.lock
+
+# ─── IDE ───────────────────────────────────
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.DS_Store
+Thumbs.db
+
+# ─── 로그 ──────────────────────────────────
+*.log
+logs/
+
+# ─── Docker 볼륨 데이터 (로컬) ─────────────
+data/
+
+# ─── 루트에 남는 디버깅/테스트 산출물 (스크린샷, UI 덤프, 임시 패키지) ─
+/before*.png
+/after*.png
+/ui*.xml
+/*.zip

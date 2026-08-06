@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  # ─────────────────────────────────────────
+  # Backend — Build & Test
+  # ─────────────────────────────────────────
+  backend:
+    name: Backend (Java 17 / Spring Boot)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: attendance_test
+          POSTGRES_USER: attendance
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/attendance_test
+      SPRING_DATASOURCE_USERNAME: attendance
+      SPRING_DATASOURCE_PASSWORD: test_password
+      SPRING_DATA_REDIS_HOST: localhost
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_PASSWORD: ""
+      JWT_SECRET: ci_test_secret_must_be_at_least_32_characters_long
+      JWT_ACCESS_TOKEN_EXPIRE_SECONDS: 1800
+      JWT_REFRESH_TOKEN_EXPIRE_DAYS: 14
+      GEOFENCE_ALLOW_MOCK_LOCATION: "true"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Grant Gradle wrapper execute permission
+        run: chmod +x gradlew
+
+      - name: Run tests
+        run: ./gradlew test --no-daemon
+
+      - name: Build JAR
+        run: ./gradlew bootJar --no-daemon -x test
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-report
+          path: backend/build/reports/tests/
+
+  # ─────────────────────────────────────────
+  # Admin Web — Lint, Type Check & Build
+  # ─────────────────────────────────────────
+  admin-web:
+    name: Admin Web (React / TypeScript)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin-web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: admin-web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+        env:
+          VITE_API_BASE_URL: /api/v1
+          VITE_MAP_PROVIDER: kakao
+          VITE_MAP_API_KEY: ci_placeholder
+
+  # ─────────────────────────────────────────
+  # Docker Build Check (PR만)
+  # ─────────────────────────────────────────
+  docker-build:
+    name: Docker Build Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: [backend, admin-web]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build backend Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: false
+          tags: attendance-backend:pr-${{ github.event.number }}
+
+      - name: Build admin-web Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./admin-web
+          push: false
+          tags: attendance-admin-web:pr-${{ github.event.number }}
+          build-args: |
+            VITE_API_BASE_URL=/api/v1
+            VITE_MAP_API_KEY=ci_placeholder

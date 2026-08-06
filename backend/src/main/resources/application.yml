@@ -1,0 +1,84 @@
+spring:
+  application:
+    name: attendance-backend
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${POSTGRES_DB:attendance}?sslmode=${DB_SSL_MODE:disable}
+    username: ${POSTGRES_USER:attendance}
+    password: ${POSTGRES_PASSWORD:attendance}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      # Supabase 세션 풀러(session pooler)는 역할당 동시 세션 수가 제한되어 있다(예: 15개).
+      # 기본 max-pool-size(10)만으로도 여유가 크지 않으므로 낮춰서 다른 클라이언트가 붙을 여지를 남긴다.
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:5}
+      minimum-idle: ${DB_POOL_MIN_IDLE:1}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        default_schema: public
+        format_sql: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+  tomcat:
+    connection-timeout: 10000
+
+jwt:
+  secret: ${JWT_SECRET:change-me-in-production-must-be-at-least-256-bits}
+  access-token-expire-seconds: ${JWT_ACCESS_TOKEN_EXPIRE_SECONDS:1800}
+  refresh-token-expire-days: ${JWT_REFRESH_TOKEN_EXPIRE_DAYS:14}
+
+geofence:
+  default-radius-meters: ${GEOFENCE_DEFAULT_RADIUS_METERS:100}
+  max-accuracy-meters: ${GEOFENCE_MAX_ACCURACY_METERS:50}
+  max-location-age-seconds: ${GEOFENCE_MAX_LOCATION_AGE_SECONDS:30}
+  retry-count: ${GEOFENCE_RETRY_COUNT:3}
+  allow-mock-location: ${GEOFENCE_ALLOW_MOCK_LOCATION:false}
+  allow-outside-check-in: ${GEOFENCE_ALLOW_OUTSIDE_CHECK_IN:false}
+  allow-outside-check-out: ${GEOFENCE_ALLOW_OUTSIDE_CHECK_OUT:false}
+
+attendance:
+  duplicate-request-window-seconds: ${ATTENDANCE_DUPLICATE_REQUEST_WINDOW_SECONDS:10}
+  allow-cross-midnight-checkout: ${ATTENDANCE_ALLOW_CROSS_MIDNIGHT_CHECKOUT:true}
+
+security:
+  max-login-failures: ${SECURITY_MAX_LOGIN_FAILURES:5}
+
+privacy:
+  location-retention-days: ${PRIVACY_LOCATION_RETENTION_DAYS:90}
+  audit-log-retention-days: ${PRIVACY_AUDIT_LOG_RETENTION_DAYS:365}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+    prometheus:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    export:
+      prometheus:
+        enabled: true
+
+logging:
+  level:
+    com.attendance: INFO
+    org.hibernate.SQL: WARN

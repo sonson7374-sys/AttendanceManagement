@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: attendance-system
+
+scrape_configs:
+  - job_name: 'attendance-backend'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['backend:8080']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'attendance-backend'
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

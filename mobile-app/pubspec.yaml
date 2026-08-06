@@ -1,0 +1,44 @@
+name: attendance_mobile
+description: GPS 지오펜스 출퇴근 관리 직원 앱
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.5.1
+
+  # Navigation
+  go_router: ^14.2.7
+
+  # Network
+  dio: ^5.4.3+1
+
+  # Secure token storage
+  flutter_secure_storage: ^9.2.2
+
+  # GPS
+  geolocator: ^13.0.1
+  permission_handler: ^11.3.1
+
+  # 생체인증 로그인 + 기기 식별자
+  local_auth: ^3.0.0
+  uuid: ^4.4.0
+
+  # UI
+  cupertino_icons: ^1.0.8
+  intl: ^0.19.0
+  table_calendar: ^3.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

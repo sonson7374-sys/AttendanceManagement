@@ -1,0 +1,202 @@
+# GPS 지오펜스 출퇴근 관리 시스템 — Docker Compose
+#
+# 기본 실행 (개발 DB만):
+#   docker compose up -d
+#
+# 전체 스택 실행:
+#   docker compose --profile full up -d
+#
+# 환경변수: .env 파일 필요 (.env.example 복사 후 수정)
+
+services:
+
+  # ─────────────────────────────────────────
+  # PostgreSQL 16
+  # ─────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: attendance-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-attendance}
+      POSTGRES_USER: ${POSTGRES_USER:-attendance}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 환경변수를 .env에 설정하세요}
+      TZ: Asia/Seoul
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-attendance} -d ${POSTGRES_DB:-attendance}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - attendance-net
+
+  # ─────────────────────────────────────────
+  # Redis 7
+  # ─────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: attendance-redis
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD 환경변수를 .env에 설정하세요}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - attendance-net
+
+  # ─────────────────────────────────────────
+  # Spring Boot Backend
+  # profile: full  (코드 준비 후 활성화)
+  # ─────────────────────────────────────────
+  backend:
+    profiles: [full]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: attendance-backend
+    env_file: .env
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-local}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-attendance}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-attendance}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      TZ: Asia/Seoul
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    restart: unless-stopped
+    networks:
+      - attendance-net
+
+  # ─────────────────────────────────────────
+  # React Admin Web
+  # profile: full  (코드 준비 후 활성화)
+  # ─────────────────────────────────────────
+  admin-web:
+    profiles: [full]
+    build:
+      context: ./admin-web
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+        VITE_MAP_PROVIDER: ${VITE_MAP_PROVIDER:-kakao}
+        VITE_MAP_API_KEY: ${VITE_MAP_API_KEY}
+    container_name: attendance-admin-web
+    restart: unless-stopped
+    networks:
+      - attendance-net
+
+  # ─────────────────────────────────────────
+  # Nginx 리버스 프록시
+  # profile: full  (코드 준비 후 활성화)
+  # ─────────────────────────────────────────
+  nginx:
+    profiles: [full]
+    image: nginx:1.27-alpine
+    container_name: attendance-nginx
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/conf.d:/etc/nginx/conf.d:ro
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+      admin-web:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - attendance-net
+
+  # ─────────────────────────────────────────
+  # Prometheus
+  # profile: monitoring
+  # ─────────────────────────────────────────
+  prometheus:
+    profiles: [monitoring]
+    image: prom/prometheus:v2.51.0
+    container_name: attendance-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    restart: unless-stopped
+    networks:
+      - attendance-net
+
+  # ─────────────────────────────────────────
+  # Grafana
+  # profile: monitoring
+  # ─────────────────────────────────────────
+  grafana:
+    profiles: [monitoring]
+    image: grafana/grafana:10.4.0
+    container_name: attendance-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "http://localhost:${GRAFANA_PORT:-3001}"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - attendance-net
+
+# ─────────────────────────────────────────
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+networks:
+  attendance-net:
+    driver: bridge

@@ -1,0 +1,29 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    enabled: true
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+
+jwt:
+  secret: test-secret-key-for-testing-only-must-be-256-bits-long-change-me
+  access-token-expire-seconds: 3600
+  refresh-token-expire-days: 7
+
+geofence:
+  default-radius-meters: 100
+  max-accuracy-meters: 50
+  max-location-age-seconds: 30
+
+logging:
+  level:
+    com.attendance: DEBUG
+    org.hibernate.SQL: DEBUG
