@@ -56,4 +56,9 @@ public class AuditLog {
         log.detail = detail;
         return log;
     }
+
+    /** 수행자 계정이 삭제될 때, 감사 기록 자체는 남기고(actorEmail은 유지) 계정 참조만 끊는다. */
+    public void detachActor() {
+        this.actorId = null;
+    }
 }

@@ -14,6 +14,8 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, Long
 
     List<LeaveRequest> findByRequesterIdOrderByCreatedAtDesc(Long requesterId);
 
+    List<LeaveRequest> findByCurrentApproverId(Long currentApproverId);
+
     List<LeaveRequest> findByStatusOrderByCreatedAtAsc(ChangeRequestStatus status);
 
     Page<LeaveRequest> findAllByOrderByCreatedAtDesc(Pageable pageable);

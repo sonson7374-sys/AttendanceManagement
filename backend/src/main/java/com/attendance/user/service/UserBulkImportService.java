@@ -9,6 +9,9 @@ import com.attendance.organization.repository.OrganizationRepository;
 import com.attendance.user.dto.BulkUserImportResponse;
 import com.attendance.user.dto.BulkUserRowResult;
 import com.attendance.user.dto.CreateUserRequest;
+import com.attendance.workplace.domain.Workplace;
+import com.attendance.workplace.repository.WorkplaceRepository;
+import com.attendance.workplace.service.WorkplaceService;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
@@ -42,16 +45,19 @@ public class UserBulkImportService {
     private static final int HEADER_ROW_INDEX = 0;
     private static final String LEVEL_GROUP_CODE = "LEVEL_ROLL";
     private static final String DEFAULT_LEVEL_CODE = "EMPLOYEE";
+    private static final String DEFAULT_WORKPLACE_NAME = "서울 본사";
     private static final String[] TEMPLATE_HEADERS = {
             "이메일*", "비밀번호*", "이름*", "사번", "휴대전화",
             "직급", "고용형태", "입사일(yyyy-MM-dd)", "역할(EMPLOYEE/MANAGER/HR_ADMIN/SYSTEM_ADMIN)",
-            "소속부서",
+            "소속부서(상위부서>부서)", "근무지",
     };
 
     private final UserService userService;
     private final AuditLogService auditLogService;
     private final Validator validator;
     private final OrganizationRepository organizationRepository;
+    private final WorkplaceRepository workplaceRepository;
+    private final WorkplaceService workplaceService;
     private final CommonCodeRepository commonCodeRepository;
 
     public BulkUserImportResponse importFromExcel(Long actorId, String actorEmail, Long companyId, MultipartFile file) {
@@ -79,8 +85,7 @@ public class UserBulkImportService {
                     String departmentName = blankToNull(cellString(row, 9, formatter));
                     Long organizationId = null;
                     if (departmentName != null) {
-                        Organization org = organizationRepository.findByCompanyIdAndName(companyId, departmentName)
-                                .orElse(null);
+                        Organization org = resolveOrganization(companyId, departmentName);
                         if (org == null) {
                             results.add(new BulkUserRowResult(displayRow, email, false,
                                     "소속부서 '" + departmentName + "'을 찾을 수 없습니다."));
@@ -91,6 +96,18 @@ public class UserBulkImportService {
 
                     String jobTitle = blankToNull(cellString(row, 5, formatter));
                     String levelCode = jobTitle != null ? levelCodeByName.getOrDefault(jobTitle, DEFAULT_LEVEL_CODE) : DEFAULT_LEVEL_CODE;
+
+                    // 근무지명이 비어있으면 기본 근무지("서울 본사")로 매핑하고, 값이 있는데 일치하는
+                    // 근무지가 없으면(오타 등) 해당 행을 실패 처리해 관리자가 바로 알 수 있게 한다.
+                    String workplaceName = blankToNull(cellString(row, 10, formatter));
+                    String effectiveWorkplaceName = workplaceName != null ? workplaceName : DEFAULT_WORKPLACE_NAME;
+                    Workplace workplace = workplaceRepository.findByCompanyIdAndName(companyId, effectiveWorkplaceName)
+                            .orElse(null);
+                    if (workplace == null) {
+                        results.add(new BulkUserRowResult(displayRow, email, false,
+                                "근무지 '" + effectiveWorkplaceName + "'을 찾을 수 없습니다."));
+                        continue;
+                    }
 
                     CreateUserRequest request = CreateUserRequest.builder()
                             .email(email)
@@ -105,6 +122,7 @@ public class UserBulkImportService {
                             .hireDate(parseDate(row.getCell(7), cellString(row, 7, formatter)))
                             .role(blankToNull(cellString(row, 8, formatter)))
                             .level(levelCode)
+                            .defaultWorkplaceId(workplace.getId())
                             .build();
 
                     Set<ConstraintViolation<CreateUserRequest>> violations = validator.validate(request);
@@ -118,7 +136,10 @@ public class UserBulkImportService {
                         continue;
                     }
 
-                    userService.createUser(request);
+                    Long newUserId = userService.createUser(request).getId();
+                    // defaultWorkplaceId는 "기본 근무지" 표시값일 뿐, 실제 출퇴근에 쓰이는 근무지
+                    // 배정(user_workplaces)은 별도로 등록해야 하므로 여기서 함께 배정한다.
+                    workplaceService.assignUserToWorkplace(newUserId, workplace.getId(), null, null, actorId);
                     results.add(new BulkUserRowResult(displayRow, email, true, "등록 완료"));
                 } catch (AttendanceException e) {
                     results.add(new BulkUserRowResult(displayRow, email, false, e.getMessage()));
@@ -160,7 +181,7 @@ public class UserBulkImportService {
             Row example = sheet.createRow(1);
             String[] sample = {
                     "hong@company.com", "Passw0rd!", "홍길동", "EMP-1001", "010-1234-5678",
-                    "사원", "정규직", "2026-01-02", "EMPLOYEE", "미디어운영팀",
+                    "사원", "정규직", "2026-01-02", "EMPLOYEE", "DT운영본부>미디어운영팀", "서울 본사",
             };
             for (int i = 0; i < sample.length; i++) {
                 example.createCell(i).setCellValue(sample[i]);
@@ -176,6 +197,26 @@ public class UserBulkImportService {
         } catch (IOException e) {
             throw new UncheckedIOException("템플릿 생성 중 오류가 발생했습니다.", e);
         }
+    }
+
+    /**
+     * 소속부서 셀은 "상위부서>소속부서"(관리자웹 부서 드롭다운과 동일한 표기) 또는 부서명 단독으로 온다.
+     * ">"가 있으면 상위부서명으로 먼저 부모 조직을 찾고, 그 부모 밑에서 소속부서명이 일치하는 조직만
+     * 매칭한다 — 이렇게 해야 같은 이름의 부서가 다른 상위조직 아래 여러 개 있어도 정확히 구분된다.
+     */
+    private Organization resolveOrganization(Long companyId, String departmentName) {
+        int sep = departmentName.indexOf('>');
+        if (sep < 0) {
+            return organizationRepository.findByCompanyIdAndName(companyId, departmentName).orElse(null);
+        }
+        String parentName = departmentName.substring(0, sep).trim();
+        String childName = departmentName.substring(sep + 1).trim();
+        Organization parent = organizationRepository.findByCompanyIdAndName(companyId, parentName).orElse(null);
+        if (parent == null) {
+            return null;
+        }
+        return organizationRepository.findByCompanyIdAndNameAndParentId(companyId, childName, parent.getId())
+                .orElse(null);
     }
 
     private boolean isRowBlank(Row row, DataFormatter formatter) {

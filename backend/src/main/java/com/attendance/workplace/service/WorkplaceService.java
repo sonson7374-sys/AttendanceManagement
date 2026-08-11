@@ -13,6 +13,7 @@ import com.attendance.workplace.dto.WorkplaceResponse;
 import com.attendance.workplace.repository.UserWorkplaceRepository;
 import com.attendance.workplace.repository.WorkplaceRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -99,6 +100,27 @@ public class WorkplaceService {
         findById(id).activate();
         auditLogService.record(actor.getId(), actor.getUsername(), "WORKPLACE_ACTIVATED",
                 "WORKPLACE", id, Map.of());
+    }
+
+    /**
+     * 이미 비활성화(삭제)된 근무지를 DB에서 완전히 삭제한다. 출퇴근 기록·직원 배정 등 사용 이력이
+     * 남아있는 근무지는 외래키 제약으로 삭제가 거부되며, 이 경우 WORKPLACE_IN_USE로 안내한다.
+     */
+    @Transactional
+    public void permanentlyDeleteWorkplace(Long id, UserPrincipal actor) {
+        Workplace workplace = findById(id);
+        if (workplace.isActive()) {
+            throw new AttendanceException(ErrorCode.WORKPLACE_NOT_DEACTIVATED);
+        }
+        String name = workplace.getName();
+        try {
+            workplaceRepository.delete(workplace);
+            workplaceRepository.flush();
+        } catch (DataIntegrityViolationException e) {
+            throw new AttendanceException(ErrorCode.WORKPLACE_IN_USE);
+        }
+        auditLogService.record(actor.getId(), actor.getUsername(), "WORKPLACE_PERMANENTLY_DELETED",
+                "WORKPLACE", id, Map.of("name", name));
     }
 
     @Transactional

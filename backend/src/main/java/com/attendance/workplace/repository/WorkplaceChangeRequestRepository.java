@@ -13,6 +13,8 @@ public interface WorkplaceChangeRequestRepository extends JpaRepository<Workplac
 
     List<WorkplaceChangeRequest> findByRequesterIdOrderByCreatedAtDesc(Long requesterId);
 
+    List<WorkplaceChangeRequest> findByCurrentApproverId(Long currentApproverId);
+
     List<WorkplaceChangeRequest> findByStatusOrderByCreatedAtAsc(ChangeRequestStatus status);
 
     Page<WorkplaceChangeRequest> findAllByOrderByCreatedAtDesc(Pageable pageable);

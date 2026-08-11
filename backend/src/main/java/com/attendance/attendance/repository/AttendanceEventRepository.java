@@ -12,6 +12,7 @@ import java.util.Optional;
 
 public interface AttendanceEventRepository extends JpaRepository<AttendanceEvent, Long> {
     List<AttendanceEvent> findByRecordId(Long recordId);
+    List<AttendanceEvent> findByUserId(Long userId);
     Optional<AttendanceEvent> findFirstByUserIdOrderByEventAtDesc(Long userId);
 
     @Modifying

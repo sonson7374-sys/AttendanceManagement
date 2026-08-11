@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { getDashboardStats } from '@/api/admin'
-import type { DashboardStats } from '@/types'
+import type { DashboardStats, DepartmentAttendanceRate } from '@/types'
 
 const CHART_HUE = '#2563eb'
 const CHART_GRID = '#e2e8f0'
@@ -139,7 +139,7 @@ export default function DashboardPage() {
       )}
 
       {data && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 20, marginTop: 20 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20, marginTop: 20 }}>
           <ChartCard title="부서별 출근율">
             {data.departmentAttendanceRates.length === 0 ? (
               <EmptyChartState />
@@ -149,21 +149,22 @@ export default function DashboardPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} vertical={false} />
                   <XAxis dataKey="organizationName" tick={{ fontSize: 12, fill: CHART_TEXT }} axisLine={{ stroke: CHART_GRID }} tickLine={false} />
                   <YAxis unit="%" tick={{ fontSize: 12, fill: CHART_TEXT }} axisLine={false} tickLine={false} />
-                  <Tooltip formatter={(v) => [`${v}%`, '출근율']} contentStyle={{ fontSize: 13, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                  <Tooltip content={<DepartmentRateTooltip />} />
                   <Bar dataKey="rate" fill={CHART_HUE} radius={[4, 4, 0, 0]} maxBarSize={40} />
                 </BarChart>
               </ResponsiveContainer>
             )}
           </ChartCard>
 
-          <ChartCard title="월별 지각 추이 (최근 6개월)">
+          <ChartCard title="시간대별 출퇴근 현황">
             <ResponsiveContainer width="100%" height={240}>
-              <LineChart data={data.monthlyLateTrend} margin={{ top: 4, right: 8, left: -12, bottom: 4 }}>
+              <LineChart data={data.hourlyAttendance} margin={{ top: 4, right: 8, left: -12, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} vertical={false} />
-                <XAxis dataKey="yearMonth" tick={{ fontSize: 12, fill: CHART_TEXT }} axisLine={{ stroke: CHART_GRID }} tickLine={false} />
+                <XAxis dataKey="hour" tick={{ fontSize: 12, fill: CHART_TEXT }} axisLine={{ stroke: CHART_GRID }} tickLine={false} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: CHART_TEXT }} axisLine={false} tickLine={false} />
-                <Tooltip formatter={(v) => [`${v}건`, '지각']} contentStyle={{ fontSize: 13, borderRadius: 8, border: '1px solid #e2e8f0' }} />
-                <Line type="monotone" dataKey="lateCount" stroke={CHART_HUE} strokeWidth={2} dot={{ r: 4, fill: CHART_HUE }} />
+                <Tooltip contentStyle={{ fontSize: 13, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                <Line type="monotone" name="출근" dataKey="checkInCount" stroke={CHART_HUE} strokeWidth={2} dot={{ r: 4, fill: CHART_HUE }} />
+                <Line type="monotone" name="퇴근" dataKey="checkOutCount" stroke="#f59e0b" strokeWidth={2} dot={{ r: 4, fill: '#f59e0b' }} />
               </LineChart>
             </ResponsiveContainer>
           </ChartCard>
@@ -186,6 +187,20 @@ function EmptyChartState() {
   return (
     <div style={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 13 }}>
       표시할 데이터가 없습니다.
+    </div>
+  )
+}
+
+// 부서명만 보여주면 이름이 같은 하위부서를 구분하기 어려우므로, 상위부서가 있으면
+// "상위부서 > 부서" 형태로 함께 보여준다.
+function DepartmentRateTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: DepartmentAttendanceRate }> }) {
+  if (!active || !payload || payload.length === 0) return null
+  const d = payload[0].payload
+  const label = d.parentOrganizationName ? `${d.parentOrganizationName} > ${d.organizationName}` : d.organizationName
+  return (
+    <div style={{ fontSize: 13, borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', padding: '8px 12px', boxShadow: '0 1px 6px rgba(0,0,0,0.08)' }}>
+      <div style={{ fontWeight: 600, marginBottom: 4, color: '#1e293b' }}>{label}</div>
+      <div style={{ color: '#374151' }}>출근율: {d.rate}%</div>
     </div>
   )
 }

@@ -7,6 +7,7 @@ import com.attendance.attendance.repository.AttendanceRecordRepository;
 import com.attendance.common.config.AppConfig;
 import com.attendance.common.exception.AttendanceException;
 import com.attendance.common.exception.ErrorCode;
+import com.attendance.holiday.domain.Holiday;
 import com.attendance.holiday.domain.HolidayType;
 import com.attendance.holiday.repository.HolidayRepository;
 import com.attendance.schedule.domain.WorkSchedule;
@@ -73,24 +74,26 @@ public class AttendanceQueryService {
                 .stream()
                 .collect(Collectors.toMap(AttendanceRecord::getWorkDate, Function.identity()));
 
+        // 근무제·공휴일을 날짜마다 반복 조회하면 기간(일수)만큼 DB 왕복이 반복되므로, 이 기간 전체를
+        // 각각 한 번씩만 조회해 메모리에서 날짜별로 매칭한다.
+        WorkScheduleService.ScheduleResolver scheduleResolver =
+                workScheduleService.batchResolver(List.of(userId), from, to);
+        Map<LocalDate, Holiday> holidayByDate = holidayRepository.findByHolidayDateBetween(from, to).stream()
+                .collect(Collectors.toMap(Holiday::getHolidayDate, Function.identity(), (a, b) -> a));
+
         List<AttendanceRegisterRowResponse> rows = new ArrayList<>();
         for (LocalDate date = from; !date.isAfter(to); date = date.plusDays(1)) {
-            rows.add(toRegisterRow(userId, date, recordsByDate.get(date)));
+            WorkSchedule schedule = scheduleResolver.resolve(userId, date);
+            rows.add(toRegisterRow(date, recordsByDate.get(date), schedule, holidayByDate));
         }
         return rows;
     }
 
-    private AttendanceRegisterRowResponse toRegisterRow(Long userId, LocalDate date, AttendanceRecord record) {
-        WorkSchedule schedule = null;
-        try {
-            schedule = workScheduleService.resolveSchedule(userId, date);
-        } catch (AttendanceException e) {
-            // 근무제를 특정할 수 없으면 스케줄 관련 필드는 비운다.
-        }
-
+    private AttendanceRegisterRowResponse toRegisterRow(LocalDate date, AttendanceRecord record,
+                                                          WorkSchedule schedule, Map<LocalDate, Holiday> holidayByDate) {
         AttendanceRegisterRowResponse.AttendanceRegisterRowResponseBuilder builder = AttendanceRegisterRowResponse.builder()
                 .workDate(date)
-                .holidayLabel(resolveHolidayLabel(date))
+                .holidayLabel(resolveHolidayLabel(date, holidayByDate.get(date)))
                 .scheduleStartTime(schedule != null ? schedule.getWorkStartTime() : null)
                 .scheduleEndTime(schedule != null ? schedule.getWorkEndTime() : null);
 
@@ -102,9 +105,10 @@ public class AttendanceQueryService {
         boolean earlyLeave = false;
         Integer outsideScheduleMinutes = null;
         if (schedule != null) {
-            late = scheduleEvaluator.isLate(record.getCheckInAt(), date, schedule);
+            late = scheduleEvaluator.isLate(record.getCheckInAt(), date, schedule, holidayByDate.keySet());
             earlyLeave = scheduleEvaluator.isEarlyLeave(record.getCheckOutAt(), schedule);
-            outsideScheduleMinutes = computeOutsideScheduleMinutes(record.getCheckInAt(), record.getCheckOutAt(), date, schedule);
+            outsideScheduleMinutes = scheduleEvaluator.computeOutsideScheduleMinutes(
+                    record.getCheckInAt(), record.getCheckOutAt(), date, schedule);
         }
 
         return builder
@@ -113,7 +117,7 @@ public class AttendanceQueryService {
                 .workMinutes(record.getWorkMinutes())
                 .breakMinutes(record.getBreakMinutes())
                 .overtimeMinutes(record.getOvertimeMinutes())
-                .nightMinutes(resolveNightMinutes(userId, record))
+                .nightMinutes(resolveNightMinutes(schedule, record))
                 .outsideScheduleMinutes(outsideScheduleMinutes)
                 .status(record.getStatus())
                 .late(late)
@@ -121,17 +125,16 @@ public class AttendanceQueryService {
                 .build();
     }
 
-    private String resolveHolidayLabel(LocalDate date) {
-        return holidayRepository.findByHolidayDate(date)
-                .map(h -> {
-                    // 토/일요일은 holidays 테이블에 WEEKEND 타입으로 미리 등록되어 있는데, 그 타입만으로는
-                    // 요일을 구분할 수 없으므로 여기서 날짜의 요일을 직접 확인해 라벨을 정한다.
-                    if (h.getHolidayType() == HolidayType.WEEKEND) {
-                        return weekendLabel(date);
-                    }
-                    return HOLIDAY_TYPE_LABEL.getOrDefault(h.getHolidayType(), h.getHolidayType().name());
-                })
-                .orElseGet(() -> weekendLabel(date));
+    private String resolveHolidayLabel(LocalDate date, Holiday holiday) {
+        if (holiday == null) {
+            return weekendLabel(date);
+        }
+        // 토/일요일은 holidays 테이블에 WEEKEND 타입으로 미리 등록되어 있는데, 그 타입만으로는
+        // 요일을 구분할 수 없으므로 여기서 날짜의 요일을 직접 확인해 라벨을 정한다.
+        if (holiday.getHolidayType() == HolidayType.WEEKEND) {
+            return weekendLabel(date);
+        }
+        return HOLIDAY_TYPE_LABEL.getOrDefault(holiday.getHolidayType(), holiday.getHolidayType().name());
     }
 
     private String weekendLabel(LocalDate date) {
@@ -141,47 +144,35 @@ public class AttendanceQueryService {
         return null;
     }
 
-    /** 실제 출퇴근 구간 중 근무제 스케줄(work_start_time~work_end_time) 밖이었던 시간(조기 출근 + 늦은 퇴근)을 구한다. */
-    private int computeOutsideScheduleMinutes(Instant checkInAt, Instant checkOutAt, LocalDate workDate, WorkSchedule schedule) {
-        if (checkInAt == null || checkOutAt == null) return 0;
-        Instant scheduleStart = workDate.atTime(schedule.getWorkStartTime()).atZone(AppConfig.SEOUL).toInstant();
-        Instant scheduleEnd = workDate.atTime(schedule.getWorkEndTime()).atZone(AppConfig.SEOUL).toInstant();
-        long before = Math.max(0, Duration.between(checkInAt, scheduleStart).toMinutes());
-        long after = Math.max(0, Duration.between(scheduleEnd, checkOutAt).toMinutes());
-        return (int) (before + after);
-    }
-
     private AttendanceHistoryResponse toResponse(Long userId, AttendanceRecord record) {
         String workplaceName = record.getWorkplaceId() == null ? null :
                 workplaceRepository.findById(record.getWorkplaceId())
                         .map(w -> w.getName()).orElse(null);
         boolean late = false;
         boolean earlyLeave = false;
+        WorkSchedule schedule = null;
         try {
-            WorkSchedule schedule = workScheduleService.resolveSchedule(userId, record.getWorkDate());
+            schedule = workScheduleService.resolveSchedule(userId, record.getWorkDate());
             late = scheduleEvaluator.isLate(record.getCheckInAt(), record.getWorkDate(), schedule);
             earlyLeave = scheduleEvaluator.isEarlyLeave(record.getCheckOutAt(), schedule);
         } catch (AttendanceException e) {
             // 근무제를 특정할 수 없으면 지각·조퇴 여부를 판정하지 않는다.
         }
-        return AttendanceHistoryResponse.from(record, workplaceName, resolveNightMinutes(userId, record), late, earlyLeave);
+        return AttendanceHistoryResponse.from(record, workplaceName, resolveNightMinutes(schedule, record), late, earlyLeave);
     }
 
     /**
      * 심야 근무 시간은 저장되지 않고 조회 시점에 계산한다 — 근무제에 야간 시간대
      * (nightShiftStart~nightShiftEnd)가 설정되어 있을 때만 실제 출퇴근 구간과 겹치는
      * 시간을 구한다. 설정이 없거나 근무제를 특정할 수 없는 경우 0으로 처리한다.
+     * 호출부가 지각·조퇴 판정 등에 이미 근무제를 조회해 둔 경우 그 값을 그대로 재사용한다
+     * (같은 날짜의 근무제를 메서드마다 다시 조회하지 않도록).
      */
-    private int resolveNightMinutes(Long userId, AttendanceRecord record) {
-        if (record.getCheckInAt() == null || record.getCheckOutAt() == null) {
+    private int resolveNightMinutes(WorkSchedule schedule, AttendanceRecord record) {
+        if (schedule == null || record.getCheckInAt() == null || record.getCheckOutAt() == null) {
             return 0;
         }
-        try {
-            WorkSchedule schedule = workScheduleService.resolveSchedule(userId, record.getWorkDate());
-            return computeNightMinutes(record.getCheckInAt(), record.getCheckOutAt(), record.getWorkDate(), schedule);
-        } catch (AttendanceException e) {
-            return 0;
-        }
+        return computeNightMinutes(record.getCheckInAt(), record.getCheckOutAt(), record.getWorkDate(), schedule);
     }
 
     private int computeNightMinutes(Instant checkInAt, Instant checkOutAt, LocalDate workDate, WorkSchedule schedule) {

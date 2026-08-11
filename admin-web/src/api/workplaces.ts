@@ -33,6 +33,10 @@ export const deactivateWorkplace = (id: number) =>
 export const activateWorkplace = (id: number) =>
   client.post<ApiResponse<void>>(`/workplaces/${id}/activate`)
 
+// 이미 비활성화(삭제)된 근무지만 대상. 출퇴근 기록 등 사용 이력이 있으면 서버가 거부한다.
+export const permanentlyDeleteWorkplace = (id: number) =>
+  client.delete<ApiResponse<void>>(`/workplaces/${id}/permanent`)
+
 export const assignUserToWorkplace = (workplaceId: number, userId: number) =>
   client.post<ApiResponse<void>>(`/workplaces/${workplaceId}/users/${userId}`)
 

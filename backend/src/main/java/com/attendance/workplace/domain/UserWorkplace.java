@@ -56,4 +56,9 @@ public class UserWorkplace {
     public void closeOn(LocalDate validTo) {
         this.validTo = validTo;
     }
+
+    /** 배정을 수행한 관리자 계정이 삭제될 때, 다른 사람의 배정 기록 자체는 남기고 배정자 참조만 끊는다. */
+    public void detachAssigner() {
+        this.assignedBy = null;
+    }
 }

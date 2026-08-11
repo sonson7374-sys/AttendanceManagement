@@ -2,6 +2,7 @@ package com.attendance.organization.service;
 
 import com.attendance.commoncode.domain.CommonCode;
 import com.attendance.commoncode.repository.CommonCodeRepository;
+import com.attendance.organization.domain.Organization;
 import com.attendance.organization.repository.OrganizationRepository;
 import com.attendance.user.domain.User;
 import com.attendance.user.domain.UserRole;
@@ -11,8 +12,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -153,6 +158,37 @@ public class OrganizationScopeService {
         return userIds;
     }
 
+    /**
+     * resolveManagedUserIds와 동일하지만, 호출부가 이미 전체 조직 목록을 조회해 둔 경우(예: 출근부 화면에서
+     * 부서 정렬용으로 조직 트리를 이미 펼쳐 둔 경우) 그 목록을 재사용해 조직 트리를 순회한다 — 그렇지 않으면
+     * collectDescendantOrgIds가 하위 부서 수만큼 organizationRepository.findByParentId를 반복 호출하게 된다.
+     */
+    @Transactional(readOnly = true)
+    public Set<Long> resolveManagedUserIds(Long actingUserId, List<Organization> allOrganizations) {
+        User actor = userRepository.findById(actingUserId)
+                .orElseThrow(() -> new IllegalStateException("사용자를 찾을 수 없습니다: " + actingUserId));
+
+        if (actor.getRole() == UserRole.SYSTEM_ADMIN || actor.getRole() == UserRole.HR_ADMIN) {
+            return null;
+        }
+        if (!isPartLeadOrAbove(actor.getLevel()) || actor.getOrganizationId() == null) {
+            return Set.of(actingUserId);
+        }
+
+        Map<Long, List<Organization>> childrenByParent = new HashMap<>();
+        for (Organization org : allOrganizations) {
+            if (org.getParentId() != null) {
+                childrenByParent.computeIfAbsent(org.getParentId(), k -> new ArrayList<>()).add(org);
+            }
+        }
+        Set<Long> orgIds = collectDescendantOrgIds(actor.getOrganizationId(), childrenByParent);
+        Set<Long> userIds = new HashSet<>(userRepository.findByOrganizationIdIn(orgIds).stream()
+                .map(User::getId)
+                .toList());
+        userIds.add(actingUserId);
+        return userIds;
+    }
+
     private Set<Long> collectDescendantOrgIds(Long rootOrgId) {
         Set<Long> visited = new HashSet<>();
         Deque<Long> queue = new ArrayDeque<>();
@@ -162,6 +198,20 @@ public class OrganizationScopeService {
             if (!visited.add(current)) continue;
             organizationRepository.findByParentId(current)
                     .forEach(child -> queue.add(child.getId()));
+        }
+        return visited;
+    }
+
+    private Set<Long> collectDescendantOrgIds(Long rootOrgId, Map<Long, List<Organization>> childrenByParent) {
+        Set<Long> visited = new HashSet<>();
+        Deque<Long> queue = new ArrayDeque<>();
+        queue.add(rootOrgId);
+        while (!queue.isEmpty()) {
+            Long current = queue.poll();
+            if (!visited.add(current)) continue;
+            for (Organization child : childrenByParent.getOrDefault(current, List.of())) {
+                queue.add(child.getId());
+            }
         }
         return visited;
     }

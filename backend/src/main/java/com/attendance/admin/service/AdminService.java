@@ -8,7 +8,9 @@ import com.attendance.admin.dto.AdminManualAttendanceRequest;
 import com.attendance.admin.dto.AdminMonthlyUserSummary;
 import com.attendance.admin.dto.DashboardStatsResponse;
 import com.attendance.admin.dto.DepartmentAttendanceRate;
-import com.attendance.admin.dto.MonthlyLateTrendPoint;
+import com.attendance.admin.dto.HourlyAttendancePoint;
+import com.attendance.commoncode.domain.CommonCode;
+import com.attendance.commoncode.repository.CommonCodeRepository;
 import com.attendance.organization.domain.Organization;
 import com.attendance.organization.repository.OrganizationRepository;
 import com.attendance.organization.service.OrganizationScopeService;
@@ -20,6 +22,7 @@ import com.attendance.attendance.repository.ChangeRequestRepository;
 import com.attendance.audit.service.AuditLogService;
 import com.attendance.common.config.AppConfig;
 import com.attendance.attendance.service.AttendanceScheduleEvaluator;
+import com.attendance.holiday.repository.HolidayRepository;
 import com.attendance.common.exception.AttendanceException;
 import com.attendance.common.exception.ErrorCode;
 import com.attendance.leave.domain.LeaveRequestType;
@@ -55,11 +58,14 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 @Service
 @RequiredArgsConstructor
@@ -88,8 +94,12 @@ public class AdminService {
     private final NotificationService notificationService;
     private final WorkScheduleService workScheduleService;
     private final AttendanceScheduleEvaluator scheduleEvaluator;
+    private final HolidayRepository holidayRepository;
     private final OrganizationScopeService organizationScopeService;
+    private final CommonCodeRepository commonCodeRepository;
     private final Clock clock;
+
+    private static final String LEVEL_GROUP_CODE = "LEVEL_ROLL";
 
     // 출근부(일괄수정) 등에서 관리자가 근무(분)을 직접 입력하지 않고 출근·퇴근 시각만 입력한 경우,
     // 점심 휴게시간(12:00~13:00, 1시간)을 제외한 근무시간을 서버가 계산해 저장한다.
@@ -111,6 +121,22 @@ public class AdminService {
         long elapsedMinutes = Duration.between(checkInAt, checkOutAt).toMinutes();
         int workMinutes = (int) Math.max(0, elapsedMinutes - breakMinutes);
         return new Integer[]{workMinutes, breakMinutes};
+    }
+
+    /**
+     * 명시적으로 입력된 잔업(분)이 있으면 그대로 쓰고, 없으면 "근무스케줄 외 근무시간"과 동일한 기준
+     * (조기 출근 + 늦은 퇴근)으로 계산한다. 출퇴근 시각이나 근무제를 특정할 수 없으면 null을 반환한다
+     * (기존 저장값을 건드리지 않음 — AttendanceRecord.applyAdminCorrection/createManual 참고).
+     */
+    private Integer resolveOvertimeMinutes(Instant checkInAt, Instant checkOutAt, LocalDate workDate,
+                                            WorkSchedule schedule, Integer explicitOvertimeMinutes) {
+        if (explicitOvertimeMinutes != null) {
+            return explicitOvertimeMinutes;
+        }
+        if (checkInAt == null || checkOutAt == null || schedule == null) {
+            return null;
+        }
+        return scheduleEvaluator.computeOutsideScheduleMinutes(checkInAt, checkOutAt, workDate, schedule);
     }
 
     private boolean computeLate(AttendanceRecord record) {
@@ -137,6 +163,22 @@ public class AdminService {
         }
     }
 
+    // 근무제와 공휴일 목록을 이미 배치 조회로 가져와 둔 화면(출근부 지정일, 월별 조회 등)에서,
+    // 레코드마다 다시 조회하지 않고 미리 구해 둔 값을 그대로 넘겨 받아 계산하는 버전.
+    private boolean computeLate(AttendanceRecord record, WorkSchedule schedule, Set<LocalDate> holidayDates) {
+        if (record.getCheckInAt() == null || schedule == null) {
+            return false;
+        }
+        return scheduleEvaluator.isLate(record.getCheckInAt(), record.getWorkDate(), schedule, holidayDates);
+    }
+
+    private boolean computeEarlyLeave(AttendanceRecord record, WorkSchedule schedule) {
+        if (record.getCheckOutAt() == null || schedule == null) {
+            return false;
+        }
+        return scheduleEvaluator.isEarlyLeave(record.getCheckOutAt(), schedule);
+    }
+
     @Transactional(readOnly = true)
     public DashboardStatsResponse getDashboardStats() {
         LocalDate today = Instant.now(clock).atZone(AppConfig.SEOUL).toLocalDate();
@@ -150,8 +192,14 @@ public class AdminService {
                           || r.getStatus() == AttendanceStatus.FINISHED
                           || r.getStatus() == AttendanceStatus.EARLY_LEAVE)
                 .count();
+
+        // 지각 판정을 오늘 출근한 레코드마다 개별 조회하면 출근자 수만큼 DB 왕복이 반복되므로,
+        // 오늘 레코드에 등장하는 사용자들의 근무제와 공휴일 여부를 각각 한 번씩만 조회해 메모리에서 매칭한다.
+        List<Long> todayUserIds = todayRecords.stream().map(AttendanceRecord::getUserId).distinct().toList();
+        Map<Long, WorkSchedule> todayScheduleByUser = workScheduleService.resolveSchedules(todayUserIds, today);
+        Set<LocalDate> todayHolidayDates = new HashSet<>(holidayRepository.findHolidayDatesBetween(today, today));
         long lateToday = todayRecords.stream()
-                .filter(this::computeLate)
+                .filter(r -> computeLate(r, todayScheduleByUser.get(r.getUserId()), todayHolidayDates))
                 .count();
         long absentToday = todayRecords.stream()
                 .filter(r -> r.getStatus() == AttendanceStatus.ABSENT)
@@ -180,12 +228,15 @@ public class AdminService {
                 .checkedOutToday(checkedOutToday)
                 .pendingApprovals(pendingApprovals)
                 .departmentAttendanceRates(getDepartmentAttendanceRates(today, todayRecords))
-                .monthlyLateTrend(getMonthlyLateTrend(today))
+                .hourlyAttendance(getHourlyAttendance(todayRecords))
                 .build();
     }
 
     private List<DepartmentAttendanceRate> getDepartmentAttendanceRates(LocalDate today, List<AttendanceRecord> todayRecords) {
         List<Organization> organizations = organizationRepository.findByCompanyIdAndActive(1L, true);
+        // 상위부서명 표시를 위해, 비활성 처리된 상위부서도 이름을 찾을 수 있도록 전체 조직을 기준으로 맵을 만든다.
+        Map<Long, Organization> orgById = organizationRepository.findAll().stream()
+                .collect(Collectors.toMap(Organization::getId, o -> o, (a, b) -> a));
         List<User> activeUsers = userRepository.findAll().stream()
                 .filter(u -> u.getStatus() == UserStatus.ACTIVE)
                 .toList();
@@ -202,31 +253,73 @@ public class AdminService {
                     long total = orgUsers.size();
                     long present = orgUsers.stream().filter(u -> presentUserIds.contains(u.getId())).count();
                     double rate = total == 0 ? 0.0 : Math.round((present * 1000.0) / total) / 10.0;
+                    Organization parent = org.getParentId() != null ? orgById.get(org.getParentId()) : null;
                     return DepartmentAttendanceRate.builder()
                             .organizationId(org.getId())
                             .organizationName(org.getName())
+                            .parentOrganizationName(parent != null ? parent.getName() : null)
                             .presentCount(present)
                             .totalCount(total)
                             .rate(rate)
                             .build();
                 })
-                .filter(d -> d.getTotalCount() > 0)
+                // 인원이 1명뿐인 부서는 출근율이 0%/100%로만 나와 의미가 없으므로 2명 이상인 부서만 보여준다.
+                .filter(d -> d.getTotalCount() > 1)
                 .toList();
     }
 
-    private List<MonthlyLateTrendPoint> getMonthlyLateTrend(LocalDate today) {
-        List<MonthlyLateTrendPoint> trend = new java.util.ArrayList<>();
-        for (int i = 5; i >= 0; i--) {
-            YearMonth ym = YearMonth.from(today).minusMonths(i);
-            long lateCount = recordRepository
-                    .findByWorkDateBetweenAllUsers(ym.atDay(1), ym.atEndOfMonth())
-                    .stream().filter(this::computeLate).count();
-            trend.add(MonthlyLateTrendPoint.builder()
-                    .yearMonth(ym.toString())
-                    .lateCount(lateCount)
-                    .build());
+    /** 오늘 출퇴근 기록을 시간(0~23시)별로 묶어 시간대별 출퇴근 인원 추이를 만든다. 06~21시 구간만 보여준다. */
+    private List<HourlyAttendancePoint> getHourlyAttendance(List<AttendanceRecord> todayRecords) {
+        Map<Integer, Long> checkInCountByHour = todayRecords.stream()
+                .filter(r -> r.getCheckInAt() != null)
+                .collect(Collectors.groupingBy(
+                        r -> r.getCheckInAt().atZone(AppConfig.SEOUL).getHour(),
+                        Collectors.counting()));
+        Map<Integer, Long> checkOutCountByHour = todayRecords.stream()
+                .filter(r -> r.getCheckOutAt() != null)
+                .collect(Collectors.groupingBy(
+                        r -> r.getCheckOutAt().atZone(AppConfig.SEOUL).getHour(),
+                        Collectors.counting()));
+
+        return IntStream.rangeClosed(6, 21)
+                .mapToObj(hour -> HourlyAttendancePoint.builder()
+                        .hour(String.format("%02d시", hour))
+                        .checkInCount(checkInCountByHour.getOrDefault(hour, 0L))
+                        .checkOutCount(checkOutCountByHour.getOrDefault(hour, 0L))
+                        .build())
+                .toList();
+    }
+
+    /**
+     * 조직 목록을 "상위부서 다음에 그 소속 하위부서들"이 바로 이어지는 트리 순서로 펼쳐, 각 조직 id가
+     * 그 순서에서 몇 번째인지 매핑한다(같은 레벨끼리는 display_order, 없으면 이름 순). 상위부서가 목록에
+     * 없는 조직(비활성 처리 등)은 최상위로 취급해 누락되지 않게 한다.
+     */
+    private Map<Long, Integer> buildOrgSortIndex(List<Organization> organizations) {
+        Set<Long> ids = organizations.stream().map(Organization::getId).collect(Collectors.toSet());
+        Map<Long, List<Organization>> byParent = new HashMap<>();
+        for (Organization org : organizations) {
+            Long key = org.getParentId() != null && ids.contains(org.getParentId()) ? org.getParentId() : null;
+            byParent.computeIfAbsent(key, k -> new ArrayList<>()).add(org);
         }
-        return trend;
+        for (List<Organization> siblings : byParent.values()) {
+            siblings.sort(Comparator
+                    .comparing((Organization o) -> o.getDisplayOrder() != null ? o.getDisplayOrder() : 0)
+                    .thenComparing(Organization::getName));
+        }
+
+        Map<Long, Integer> index = new HashMap<>();
+        int[] counter = {0};
+        visitOrgsForSortIndex(null, byParent, index, counter);
+        return index;
+    }
+
+    private void visitOrgsForSortIndex(Long parentId, Map<Long, List<Organization>> byParent,
+                                        Map<Long, Integer> index, int[] counter) {
+        for (Organization org : byParent.getOrDefault(parentId, List.of())) {
+            index.put(org.getId(), counter[0]++);
+            visitOrgsForSortIndex(org.getId(), byParent, index, counter);
+        }
     }
 
     /**
@@ -255,15 +348,27 @@ public class AdminService {
         Set<Long> visibleUserIds = organizationScopeService.resolveVisibleUserIdsByLevel(actorId);
         List<AttendanceRecord> records = recordRepository.findByWorkDate(date);
 
+        // 사용자·근무지·근무제·공휴일을 레코드마다 반복 조회하면 그날 레코드 수만큼 DB 왕복이 반복되므로,
+        // 필요한 대상을 각각 한 번에 모아 조회해 메모리에서 매칭한다.
+        List<Long> recordUserIds = records.stream().map(AttendanceRecord::getUserId).distinct().toList();
+        Map<Long, User> userById = userRepository.findAllById(recordUserIds).stream()
+                .collect(Collectors.toMap(User::getId, u -> u));
+        List<Long> recordWorkplaceIds = records.stream().map(AttendanceRecord::getWorkplaceId)
+                .filter(id -> id != null).distinct().toList();
+        Map<Long, Workplace> workplaceById = workplaceRepository.findAllById(recordWorkplaceIds).stream()
+                .collect(Collectors.toMap(Workplace::getId, w -> w));
+        Map<Long, WorkSchedule> scheduleByUser = workScheduleService.resolveSchedules(recordUserIds, date);
+        Set<LocalDate> holidayDates = new HashSet<>(holidayRepository.findHolidayDatesBetween(date, date));
+
         List<AdminAttendanceResponse> responses = records.stream()
                 .filter(r -> visibleUserIds == null || visibleUserIds.contains(r.getUserId()))
                 .filter(r -> workplaceId == null || workplaceId.equals(r.getWorkplaceId()))
                 .filter(r -> status == null || r.getStatus() == status)
-                .filter(r -> lateOnly == null || !lateOnly || computeLate(r))
+                .filter(r -> lateOnly == null || !lateOnly
+                        || computeLate(r, scheduleByUser.get(r.getUserId()), holidayDates))
                 .map(record -> {
-                    User user = userRepository.findById(record.getUserId()).orElse(null);
-                    Workplace workplace = record.getWorkplaceId() == null ? null :
-                            workplaceRepository.findById(record.getWorkplaceId()).orElse(null);
+                    User user = userById.get(record.getUserId());
+                    Workplace workplace = record.getWorkplaceId() == null ? null : workplaceById.get(record.getWorkplaceId());
                     return new Object[]{record, user, workplace};
                 })
                 .filter(arr -> {
@@ -293,8 +398,9 @@ public class AdminService {
                     String userName = user != null ? user.getName() : "(삭제됨)";
                     String empNumber = user != null ? user.getEmployeeNumber() : "";
                     String workplaceName = workplace != null ? workplace.getName() : null;
+                    WorkSchedule schedule = scheduleByUser.get(record.getUserId());
                     return AdminAttendanceResponse.from(record, userName, empNumber, workplaceName,
-                            computeLate(record), computeEarlyLeave(record));
+                            computeLate(record, schedule, holidayDates), computeEarlyLeave(record, schedule));
                 })
                 .toList();
 
@@ -323,12 +429,22 @@ public class AdminService {
         Map<Long, List<AttendanceRecord>> byUser = records.stream()
                 .collect(Collectors.groupingBy(AttendanceRecord::getUserId));
 
+        // 레코드(그 달의 출근일)마다 근무제·공휴일 여부를 다시 조회하면 "직원 수 × 근무일수"만큼 DB 왕복이
+        // 반복되므로, 이 기간에 해당하는 근무제 배정과 공휴일을 각각 한 번에 가져와 메모리에서 매칭한다.
+        List<Long> activeUserIds = activeUsers.stream().map(User::getId).toList();
+        WorkScheduleService.ScheduleResolver scheduleResolver = workScheduleService.batchResolver(activeUserIds, from, to);
+        Set<LocalDate> holidayDates = new HashSet<>(holidayRepository.findHolidayDatesBetween(from, to));
+
         return activeUsers.stream().map(user -> {
             List<AttendanceRecord> userRecords = byUser.getOrDefault(user.getId(), List.of());
             int presentDays = (int) userRecords.stream()
                     .filter(r -> r.getStatus() != AttendanceStatus.ABSENT).count();
-            int lateDays = (int) userRecords.stream().filter(this::computeLate).count();
-            int earlyLeaveDays = (int) userRecords.stream().filter(this::computeEarlyLeave).count();
+            int lateDays = (int) userRecords.stream()
+                    .filter(r -> computeLate(r, scheduleResolver.resolve(r.getUserId(), r.getWorkDate()), holidayDates))
+                    .count();
+            int earlyLeaveDays = (int) userRecords.stream()
+                    .filter(r -> computeEarlyLeave(r, scheduleResolver.resolve(r.getUserId(), r.getWorkDate())))
+                    .count();
             int absentDays = (int) userRecords.stream()
                     .filter(r -> r.getStatus() == AttendanceStatus.ABSENT).count();
             int totalWork = userRecords.stream()
@@ -393,14 +509,25 @@ public class AdminService {
         if (!topAdmin && !organizationScopeService.isPartLeadOrAbove(actor.getLevel())) {
             throw new AttendanceException(ErrorCode.ACCESS_DENIED);
         }
-        Set<Long> managedUserIds = organizationScopeService.resolveManagedUserIds(actorId);
+        // 조직 목록은 관리 범위 계산(조직 트리 순회)과 정렬(부서 트리 순번)에 모두 필요하므로 한 번만 조회해 재사용한다
+        // — 그렇지 않으면 조직 트리 순회가 하위 부서 수만큼 쿼리를 반복하게 된다.
+        List<Organization> allOrganizations = organizationRepository.findAll();
+        Set<Long> managedUserIds = organizationScopeService.resolveManagedUserIds(actorId, allOrganizations);
+
+        // 상위부서 → 소속부서 순으로 조직 트리를 펼친 순번(같은 부서 안에서는 팀장 이상이 먼저, 그 다음 이름 순)으로 정렬한다.
+        Map<Long, Integer> orgSortIndex = buildOrgSortIndex(allOrganizations);
+        Map<String, Integer> levelOrder = commonCodeRepository.findByGroupCodeOrderByDisplayOrderAsc(LEVEL_GROUP_CODE)
+                .stream().collect(Collectors.toMap(CommonCode::getCode, CommonCode::getDisplayOrder));
 
         List<User> targets = userRepository.findByStatus(UserStatus.ACTIVE).stream()
                 .filter(u -> managedUserIds == null || managedUserIds.contains(u.getId()))
                 .filter(u -> organizationId == null || organizationId.equals(u.getOrganizationId()))
                 .filter(u -> employeeName == null || employeeName.isBlank()
                         || u.getName().toLowerCase().contains(employeeName.toLowerCase()))
-                .sorted(Comparator.comparing(User::getName))
+                .sorted(Comparator
+                        .comparing((User u) -> orgSortIndex.getOrDefault(u.getOrganizationId(), Integer.MAX_VALUE))
+                        .thenComparing(u -> levelOrder.getOrDefault(u.getLevel(), Integer.MAX_VALUE))
+                        .thenComparing(User::getName))
                 .toList();
 
         List<Long> targetIds = targets.stream().map(User::getId).toList();
@@ -427,19 +554,39 @@ public class AdminService {
                         l -> LEAVE_BOARD_TYPE_LABELS.get(l.getRequestType()),
                         (existing, replacement) -> existing));
 
+        Map<Long, Workplace> workplaceById = workplaceRepository.findAll().stream()
+                .collect(Collectors.toMap(Workplace::getId, w -> w, (a, b) -> a));
+
+        // 직원마다 근무제·배정 근무지를 개별 조회하면 대상 인원 수만큼 DB 왕복이 반복되므로,
+        // 대상 전체를 각각 한 번의 배치 조회로 미리 구해 메모리에서 매칭한다.
+        Map<Long, WorkSchedule> scheduleByUser = workScheduleService.resolveSchedules(targetIds, date);
+        Set<LocalDate> holidayDates = new HashSet<>(holidayRepository.findHolidayDatesBetween(date, date));
+        Map<Long, Long> assignedWorkplaceIdByUser = new HashMap<>();
+        for (Object[] row : workplaceRepository.findAssignedWorkplacesByUserIdsAndDate(targetIds, date)) {
+            Long userId = (Long) row[0];
+            Workplace workplace = (Workplace) row[1];
+            assignedWorkplaceIdByUser.putIfAbsent(userId, workplace.getId());
+        }
+
         return targets.stream()
                 .map(user -> {
                     AttendanceRecord record = recordByUser.get(user.getId());
-                    WorkSchedule schedule = null;
-                    try {
-                        schedule = workScheduleService.resolveSchedule(user.getId(), date);
-                    } catch (AttendanceException e) {
-                        // 스케줄이 배정되지 않은 경우 근무스케줄 열은 비워서 표시한다.
-                    }
-                    boolean late = record != null && computeLate(record);
-                    boolean earlyLeave = record != null && computeEarlyLeave(record);
+                    WorkSchedule schedule = scheduleByUser.get(user.getId());
+                    boolean late = record != null && computeLate(record, schedule, holidayDates);
+                    boolean earlyLeave = record != null && computeEarlyLeave(record, schedule);
+
+                    // 근태 기록에 이미 저장된 근무지가 있으면 그 값을 우선하고(예: 실제 GPS 출퇴근 결과),
+                    // 없으면 이 직원에게 그날 배정된 근무지로 보정 시 저장할 근무지를 채운다.
+                    Long recordWorkplaceId = record != null ? record.getWorkplaceId() : null;
+                    Long effectiveWorkplaceId = recordWorkplaceId != null ? recordWorkplaceId
+                            : assignedWorkplaceIdByUser.get(user.getId());
+                    String effectiveWorkplaceName = effectiveWorkplaceId != null
+                            ? Optional.ofNullable(workplaceById.get(effectiveWorkplaceId)).map(Workplace::getName).orElse(null)
+                            : null;
+
                     return AdminAttendanceBoardRow.of(user, record, schedule, late, earlyLeave,
-                            pendingRequestUserIds.contains(user.getId()), leaveLabelByUser.get(user.getId()));
+                            pendingRequestUserIds.contains(user.getId()), leaveLabelByUser.get(user.getId()),
+                            effectiveWorkplaceId, effectiveWorkplaceName);
                 })
                 .toList();
     }
@@ -480,11 +627,13 @@ public class AdminService {
 
         Integer[] manualWorkAndBreak = resolveWorkAndBreakMinutes(
                 req.getCheckInAt(), req.getCheckOutAt(), req.getWorkMinutes(), req.getBreakMinutes());
+        Integer manualOvertimeMinutes = resolveOvertimeMinutes(
+                req.getCheckInAt(), req.getCheckOutAt(), req.getWorkDate(), manualSchedule, req.getOvertimeMinutes());
 
         AttendanceRecord record = recordRepository.save(AttendanceRecord.createManual(
                 req.getUserId(), req.getWorkDate(), req.getWorkplaceId(),
                 req.getCheckInAt(), req.getCheckOutAt(), req.getStatus(),
-                manualWorkAndBreak[0], manualWorkAndBreak[1], req.getOvertimeMinutes(),
+                manualWorkAndBreak[0], manualWorkAndBreak[1], manualOvertimeMinutes,
                 manualLate, manualEarlyLeave));
 
         auditLogService.record(actorId, actorEmail, "ATTENDANCE_MANUAL_CREATED", "ATTENDANCE_RECORD",
@@ -533,16 +682,16 @@ public class AdminService {
                 "checkOutAt", String.valueOf(record.getCheckOutAt()),
                 "status", record.getStatus().name());
 
-        Boolean late = null;
-        if (req.getCheckInAt() != null) {
-            WorkSchedule schedule = workScheduleService.resolveSchedule(record.getUserId(), record.getWorkDate());
-            late = scheduleEvaluator.isLate(req.getCheckInAt(), record.getWorkDate(), schedule);
+        // 출근·퇴근 시각 중 하나라도 바뀌면 잔업시간도 그 근무제 기준으로 다시 계산해야 하므로,
+        // 지각·조퇴 판정에 쓸 근무제를 한 번만 조회해 그대로 재사용한다.
+        WorkSchedule schedule = null;
+        if (req.getCheckInAt() != null || req.getCheckOutAt() != null) {
+            schedule = workScheduleService.resolveSchedule(record.getUserId(), record.getWorkDate());
         }
-        Boolean earlyLeave = null;
-        if (req.getCheckOutAt() != null) {
-            WorkSchedule schedule = workScheduleService.resolveSchedule(record.getUserId(), record.getWorkDate());
-            earlyLeave = scheduleEvaluator.isEarlyLeave(req.getCheckOutAt(), schedule);
-        }
+        Boolean late = req.getCheckInAt() != null
+                ? scheduleEvaluator.isLate(req.getCheckInAt(), record.getWorkDate(), schedule) : null;
+        Boolean earlyLeave = req.getCheckOutAt() != null
+                ? scheduleEvaluator.isEarlyLeave(req.getCheckOutAt(), schedule) : null;
 
         // 출근부(지정일) 화면처럼 근태상태를 직접 고르지 않고 시각만 입력·저장하는 경로에서는
         // 퇴근/조퇴 등 상태값이 시각 변경에 맞춰 저절로 갱신되어야 한다. 관리자가 상태를 명시적으로
@@ -563,9 +712,14 @@ public class AdminService {
         Instant effectiveCheckOut = req.getCheckOutAt() != null ? req.getCheckOutAt() : record.getCheckOutAt();
         Integer[] workAndBreak = resolveWorkAndBreakMinutes(
                 effectiveCheckIn, effectiveCheckOut, req.getWorkMinutes(), req.getBreakMinutes());
+        // 잔업시간도 위와 같은 이유로, 관리자가 직접 입력하지 않았다면 보정 후 최종 시각과 근무제 기준으로
+        // "근무스케줄 외 근무시간"과 동일하게 다시 계산해 저장한다(그렇지 않으면 퇴근시각만 보정해도
+        // 예전 잔업시간이 그대로 남아 있게 된다).
+        Integer overtimeMinutes = resolveOvertimeMinutes(
+                effectiveCheckIn, effectiveCheckOut, record.getWorkDate(), schedule, req.getOvertimeMinutes());
 
         record.applyAdminCorrection(req.getCheckInAt(), req.getCheckOutAt(), req.getWorkplaceId(),
-                statusToApply, workAndBreak[0], workAndBreak[1], req.getOvertimeMinutes(),
+                statusToApply, workAndBreak[0], workAndBreak[1], overtimeMinutes,
                 late, earlyLeave);
 
         auditLogService.record(actorId, actorEmail, "ATTENDANCE_CORRECTED", "ATTENDANCE_RECORD", recordId,

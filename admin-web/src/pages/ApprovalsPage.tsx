@@ -376,9 +376,12 @@ export default function ApprovalsPage() {
   )
 }
 
+const PENDING_PAGE_SIZE = 15
+
 function PendingQueue() {
   const queryClient = useQueryClient()
   const [comment, setComment] = useState<Record<string, string>>({})
+  const [page, setPage] = useState(0)
   const level = useAuthStore(s => s.level)
   const canApprove = !!level && APPROVER_LEVELS.includes(level)
   const { data: scopeInfo } = useQuery({
@@ -435,6 +438,12 @@ function PendingQueue() {
       kind: 'WORK_SCHEDULE_CHANGE_REQUEST', id: wsc.id, createdAt: wsc.createdAt, workScheduleChangeRequest: wsc,
     })),
   ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+
+  // 승인·반려로 목록이 줄어들어 현재 페이지가 범위를 벗어나면(예: 마지막 페이지에서 전부 처리한 경우)
+  // 존재하는 마지막 페이지로 자동 보정한다.
+  const totalPages = Math.max(1, Math.ceil(items.length / PENDING_PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages - 1)
+  const pagedItems = items.slice(currentPage * PENDING_PAGE_SIZE, (currentPage + 1) * PENDING_PAGE_SIZE)
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['pending-requests'] })
@@ -505,7 +514,7 @@ function PendingQueue() {
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {items.map((item) => {
+        {pagedItems.map((item) => {
           const key = `${item.kind}-${item.id}`
           return (
             <div key={key} style={{
@@ -618,6 +627,24 @@ function PendingQueue() {
           )
         })}
       </div>
+
+      {items.length > 0 && (
+        <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={currentPage <= 0}
+            style={pageBtnStyle}
+          >이전</button>
+          <span style={{ fontSize: 12, color: '#94a3b8' }}>
+            {currentPage + 1} / {totalPages} 페이지 (총 {items.length}건)
+          </span>
+          <button
+            onClick={() => setPage((p) => p + 1)}
+            disabled={currentPage + 1 >= totalPages}
+            style={pageBtnStyle}
+          >다음</button>
+        </div>
+      )}
     </div>
   )
 }
@@ -629,27 +656,27 @@ function RequestHistory() {
 
   const changeQuery = useQuery({
     queryKey: ['request-history', 'CHANGE_REQUEST', status, kind === 'ALL' ? 0 : page],
-    queryFn: () => getChangeRequestHistory({ status: status || undefined, page: kind === 'ALL' ? 0 : page }).then((r) => r.data.data),
+    queryFn: () => getChangeRequestHistory({ status: status || undefined, page: kind === 'ALL' ? 0 : page, size: 15 }).then((r) => r.data.data),
     enabled: kind === 'ALL' || kind === 'CHANGE_REQUEST',
   })
   const leaveQuery = useQuery({
     queryKey: ['request-history', 'LEAVE_REQUEST', status, kind === 'ALL' ? 0 : page],
-    queryFn: () => getLeaveRequestHistory({ status: status || undefined, page: kind === 'ALL' ? 0 : page }).then((r) => r.data.data),
+    queryFn: () => getLeaveRequestHistory({ status: status || undefined, page: kind === 'ALL' ? 0 : page, size: 15 }).then((r) => r.data.data),
     enabled: kind === 'ALL' || kind === 'LEAVE_REQUEST',
   })
   const outsideWorkQuery = useQuery({
     queryKey: ['request-history', 'OUTSIDE_WORK_REQUEST', status, kind === 'ALL' ? 0 : page],
-    queryFn: () => getOutsideWorkRequestHistory({ status: status || undefined, page: kind === 'ALL' ? 0 : page }).then((r) => r.data.data),
+    queryFn: () => getOutsideWorkRequestHistory({ status: status || undefined, page: kind === 'ALL' ? 0 : page, size: 15 }).then((r) => r.data.data),
     enabled: kind === 'ALL' || kind === 'OUTSIDE_WORK_REQUEST',
   })
   const workplaceChangeQuery = useQuery({
     queryKey: ['request-history', 'WORKPLACE_CHANGE_REQUEST', status, kind === 'ALL' ? 0 : page],
-    queryFn: () => getWorkplaceChangeRequestHistory({ status: status || undefined, page: kind === 'ALL' ? 0 : page }).then((r) => r.data.data),
+    queryFn: () => getWorkplaceChangeRequestHistory({ status: status || undefined, page: kind === 'ALL' ? 0 : page, size: 15 }).then((r) => r.data.data),
     enabled: kind === 'ALL' || kind === 'WORKPLACE_CHANGE_REQUEST',
   })
   const workScheduleChangeQuery = useQuery({
     queryKey: ['request-history', 'WORK_SCHEDULE_CHANGE_REQUEST', status, kind === 'ALL' ? 0 : page],
-    queryFn: () => getWorkScheduleChangeRequestHistory({ status: status || undefined, page: kind === 'ALL' ? 0 : page }).then((r) => r.data.data),
+    queryFn: () => getWorkScheduleChangeRequestHistory({ status: status || undefined, page: kind === 'ALL' ? 0 : page, size: 15 }).then((r) => r.data.data),
     enabled: kind === 'ALL' || kind === 'WORK_SCHEDULE_CHANGE_REQUEST',
   })
 
@@ -779,7 +806,7 @@ function RequestHistory() {
       </div>
 
       {kind === 'ALL' ? (
-        <p style={{ marginTop: 10, fontSize: 12, color: '#94a3b8' }}>구분별 최근 20건씩 표시됩니다. 특정 구분을 선택하면 전체 이력을 페이지로 조회할 수 있습니다.</p>
+        <p style={{ marginTop: 10, fontSize: 12, color: '#94a3b8' }}>구분별 최근 15건씩 표시됩니다. 특정 구분을 선택하면 전체 이력을 페이지로 조회할 수 있습니다.</p>
       ) : activePage && (
         <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
           <button

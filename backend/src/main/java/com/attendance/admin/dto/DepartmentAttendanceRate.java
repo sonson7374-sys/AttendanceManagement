@@ -8,6 +8,7 @@ import lombok.Getter;
 public class DepartmentAttendanceRate {
     private Long organizationId;
     private String organizationName;
+    private String parentOrganizationName;
     private long presentCount;
     private long totalCount;
     private double rate;

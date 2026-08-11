@@ -32,6 +32,10 @@ export const unlockUser = (userId: number) =>
 export const resignUser = (userId: number, resignDate: string) =>
   client.post<ApiResponse<void>>(`/users/${userId}/resign`, { resignDate })
 
+// 퇴사 처리와 달리 되돌릴 수 없는 완전 삭제. 출퇴근·신청 등 사용 이력이 있으면 서버가 거부한다.
+export const deleteUser = (userId: number) =>
+  client.delete<ApiResponse<void>>(`/users/${userId}`)
+
 export interface PasswordResetResult {
   userId: number
   temporaryPassword: string

@@ -34,7 +34,7 @@ function CommonCodeTab() {
   const qc = useQueryClient()
   const [groupModal, setGroupModal] = useState<CommonCodeGroup | 'new' | null>(null)
   const [codeModal, setCodeModal] = useState<CommonCode | 'new' | null>(null)
-  const [selectedGroup, setSelectedGroup] = useState<string>(ROLE_GROUP)
+  const [selectedGroup, setSelectedGroup] = useState<string>(LEVEL_GROUP)
 
   const { data: groups = [], isLoading: groupsLoading } = useQuery({
     queryKey: ['common-code-groups'],

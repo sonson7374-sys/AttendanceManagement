@@ -4,9 +4,11 @@ import { useAuthStore } from '@/store/authStore'
 import * as authApi from '@/api/auth'
 import { getUser } from '@/api/users'
 import { getOrganizations } from '@/api/organizations'
+import { getAttendanceScopeInfo } from '@/api/admin'
 import { usePermissions } from '@/hooks/usePermissions'
 import { useLevelOptions } from '@/hooks/useLevelOptions'
 import toast from 'react-hot-toast'
+import uracleLogo from '@/assets/uracle-logo.png'
 
 const COMPANY_ID = 1
 
@@ -17,12 +19,12 @@ const NAV_ITEMS = [
   { path: '/approvals', label: '승인함', icon: '✅', menuKey: 'approvals' },
   { path: '/schedules', label: '일정관리', icon: '📅', menuKey: 'schedules' },
   { path: '/employees', label: '직원 관리', icon: '👥', menuKey: 'employees' },
-  { path: '/workplaces', label: '근무지 관리', icon: '📍', menuKey: 'workplaces' },
   { path: '/organizations', label: '부서 관리', icon: '🏢', menuKey: 'organizations' },
+  { path: '/workplaces', label: '근무지 관리', icon: '📍', menuKey: 'workplaces' },
   { path: '/work-schedules', label: '근무제 관리', icon: '⏰', menuKey: 'work-schedules' },
   { path: '/holidays', label: '휴일/휴가 관리', icon: '🗓️', menuKey: 'holidays' },
-  { path: '/audit-logs', label: '감사 로그', icon: '🔍', menuKey: 'audit-logs' },
   { path: '/permissions', label: '권한관리', icon: '🔐', menuKey: 'permissions' },
+  { path: '/audit-logs', label: '감사 로그', icon: '🔍', menuKey: 'audit-logs' },
 ]
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -46,6 +48,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     staleTime: 5 * 60 * 1000,
   })
   const orgName = organizations.find(o => o.id === me?.organizationId)?.name
+
+  // 직원 관리 메뉴명: 파트장 이상 레벨이면서 관리할 소속 직원이 실제로 있을 때만 "직원 관리",
+  // 그 외(직원 레벨이거나 소속 직원이 없는 파트장 이상)는 본인 정보만 다루는 화면이라 "내정보 관리"로 표시한다.
+  const { data: scopeInfo } = useQuery({
+    queryKey: ['attendance-scope-info'],
+    queryFn: () => getAttendanceScopeInfo().then(r => r.data.data),
+    staleTime: 5 * 60 * 1000,
+  })
+  const employeesMenuLabel = scopeInfo?.hasSubordinates ? '직원 관리' : '내정보 관리'
 
   const handleLogout = async () => {
     try {
@@ -85,7 +96,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 transition: 'all 0.15s',
               }}>
                 <span>{item.icon}</span>
-                <span>{item.label}</span>
+                <span>{item.menuKey === 'employees' ? employeesMenuLabel : item.label}</span>
               </Link>
             )
           })}
@@ -101,6 +112,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           }}>
             로그아웃
           </button>
+        </div>
+        <div style={{ padding: '14px 20px', display: 'flex', justifyContent: 'center', background: '#fff' }}>
+          <img src={uracleLogo} alt="uracle" style={{ height: 20 }} />
         </div>
       </aside>
 

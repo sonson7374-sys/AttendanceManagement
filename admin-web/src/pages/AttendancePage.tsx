@@ -12,6 +12,7 @@ import { getUsers } from '@/api/users'
 import { getWorkplaces } from '@/api/workplaces'
 import { getOrganizations } from '@/api/organizations'
 import { useAuthStore } from '@/store/authStore'
+import { orgOptionLabel, buildOrgsById, sortOrgsHierarchically } from '@/utils/organizations'
 import type { AttendanceRecord, AttendanceStatus, AttendanceBoardRow, MonthlyUserSummary } from '@/types'
 
 const COMPANY_ID = 1
@@ -214,14 +215,17 @@ function DailyTab() {
 
   const { data: workplaces = [] } = useQuery({ queryKey: ['workplaces'], queryFn: () => getWorkplaces(COMPANY_ID).then(r => r.data.data) })
   const { data: organizations = [] } = useQuery({ queryKey: ['organizations', COMPANY_ID], queryFn: () => getOrganizations(COMPANY_ID).then(r => r.data.data) })
+  // 상위부서명 표시는 전체 조직 목록 기준으로 계산해야 한다 — 선택 가능한 목록(visibleOrganizations)만으로
+  // 만들면, 본인 조직의 상위부서가 그 목록 밖에 있을 때(조회범위 밖) 이름을 못 찾는다.
+  const orgsById = buildOrgsById(organizations)
 
   // scopeInfo.workplaceIds/organizationIds가 null이면 전체 조회 가능(SYSADMIN 등), 배열이면 그 범위로 좁혀서 보여준다.
   const visibleWorkplaces = scopeInfo?.workplaceIds
     ? workplaces.filter(w => scopeInfo.workplaceIds!.includes(w.id))
     : workplaces
-  const visibleOrganizations = scopeInfo?.organizationIds
+  const visibleOrganizations = sortOrgsHierarchically(scopeInfo?.organizationIds
     ? organizations.filter(o => scopeInfo.organizationIds!.includes(o.id))
-    : organizations
+    : organizations)
 
   const filters = {
     workplaceId: workplaceId ? Number(workplaceId) : undefined,
@@ -258,7 +262,7 @@ function DailyTab() {
         {showPersonFilters && (
           <select value={organizationId} onChange={e => setOrganizationId(e.target.value)} style={filterInputStyle}>
             <option value="">부서 전체</option>
-            {visibleOrganizations.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+            {visibleOrganizations.map(o => <option key={o.id} value={o.id}>{orgOptionLabel(o, orgsById)}</option>)}
           </select>
         )}
         {showPersonFilters && (
@@ -282,11 +286,11 @@ function DailyTab() {
           style={{ padding: '8px 14px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
         >CSV 내보내기</button>
       </div>
-      <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 6px rgba(0,0,0,0.06)', overflow: 'auto' }}>
+      <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 6px rgba(0,0,0,0.06)', overflow: 'auto', maxHeight: '60vh' }}>
         {isLoading ? <Loading /> : records.length === 0 ? <Empty text="해당 날짜의 근태 기록이 없습니다." /> : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ background: '#f8fafc' }}>
+              <tr style={{ background: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
                 {['사번', '이름', '상태', '근무지', '출근', '퇴근', '처리방식', '근무시간', '휴식시간', '근무스케줄 외 근무시간'].map(h => (
                   <th key={h} style={thStyle}>{h}</th>
                 ))}
@@ -345,15 +349,37 @@ interface BoardEdit { checkInAt: string; checkOutAt: string }
 // 그 결과 한글 조합 입력(IME composition) 중간에 DOM 노드가 사라져 조합이 깨진다
 // (증상: 한글이 아니라 엉뚱한 한자/깨진 글자만 입력되는 것처럼 보임).
 // 컴포넌트를 모듈 스코프로 끌어올려 함수 정체성을 고정해야 이 문제가 사라진다.
-function AttendanceReasonBar({ reason, onReasonChange, onSave, saving, changedCount }: {
+function AttendanceReasonBar({
+  reason, onReasonChange, onSave, saving, changedCount,
+  bulkField, onBulkFieldChange, bulkTime, onBulkTimeChange, onApplyBulk, selectedCount,
+}: {
   reason: string
   onReasonChange: (v: string) => void
   onSave: () => void
   saving: boolean
   changedCount: number
+  bulkField: 'checkInAt' | 'checkOutAt'
+  onBulkFieldChange: (v: 'checkInAt' | 'checkOutAt') => void
+  bulkTime: string
+  onBulkTimeChange: (v: string) => void
+  onApplyBulk: () => void
+  selectedCount: number
 }) {
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end', marginBottom: 12 }}>
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end', marginBottom: 12, flexWrap: 'wrap' }}>
+      <select value={bulkField} onChange={e => onBulkFieldChange(e.target.value as 'checkInAt' | 'checkOutAt')} style={filterInputStyle}>
+        <option value="checkInAt">출근시각</option>
+        <option value="checkOutAt">퇴근시각</option>
+      </select>
+      <input
+        placeholder="09:00" inputMode="numeric" maxLength={5}
+        value={bulkTime}
+        onChange={e => onBulkTimeChange(autoFormatHHMM(e.target.value))}
+        style={{ ...filterInputStyle, width: 70, textAlign: 'center' }}
+      />
+      <button onClick={onApplyBulk} style={primaryBtnStyle}>
+        선택 직원에 적용{selectedCount > 0 ? ` (${selectedCount})` : ''}
+      </button>
       <input
         placeholder="보정 사유 (변경 시 필수)"
         value={reason}
@@ -374,6 +400,9 @@ function RegisterBoardTab() {
   const [employeeName, setEmployeeName] = useState('')
   const [edits, setEdits] = useState<Record<number, BoardEdit>>({})
   const [reason, setReason] = useState('')
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<number>>(new Set())
+  const [bulkField, setBulkField] = useState<'checkInAt' | 'checkOutAt'>('checkInAt')
+  const [bulkTime, setBulkTime] = useState('')
   // 아직 퇴근하지 않은 직원의 근로시간은 "지금"을 기준으로 추정해 보여주므로, 분 단위로 다시 계산되도록 주기적으로 리렌더링한다.
   const [, retick] = useState(0)
   useEffect(() => {
@@ -381,7 +410,17 @@ function RegisterBoardTab() {
     return () => clearInterval(timer)
   }, [])
 
+  const { data: scopeInfo } = useQuery({
+    queryKey: ['attendance-scope-info'],
+    queryFn: () => getAttendanceScopeInfo().then(r => r.data.data),
+  })
   const { data: organizations = [] } = useQuery({ queryKey: ['organizations', COMPANY_ID], queryFn: () => getOrganizations(COMPANY_ID).then(r => r.data.data) })
+  const orgsById = buildOrgsById(organizations)
+
+  // scopeInfo.organizationIds가 null이면 전체 조회 가능(SYSADMIN 등), 배열이면 그 범위(본인 소속부서+하위부서)로 좁혀서 보여준다.
+  const visibleOrganizations = sortOrgsHierarchically(scopeInfo?.organizationIds
+    ? organizations.filter(o => scopeInfo.organizationIds!.includes(o.id))
+    : organizations)
 
   const filters = {
     organizationId: organizationId ? Number(organizationId) : undefined,
@@ -394,13 +433,43 @@ function RegisterBoardTab() {
 
   // 날짜·필터가 바뀌어 새 데이터를 불러오면 이전 화면의 미저장 편집 상태는 초기화한다.
   // 근태 기록이 아직 없는 직원도 편집할 수 있어야 하므로 attendanceId가 아니라 userId로 편집 상태를 관리한다.
-  useEffect(() => { setEdits({}) }, [date, organizationId, employeeName])
+  useEffect(() => { setEdits({}); setSelectedUserIds(new Set()); setBulkTime('') }, [date, organizationId, employeeName])
 
   const getEdit = (row: AttendanceBoardRow): BoardEdit =>
     edits[row.userId] ?? { checkInAt: toLocalHHMM(row.checkInAt), checkOutAt: toLocalHHMM(row.checkOutAt) }
 
   const setEdit = (row: AttendanceBoardRow, field: keyof BoardEdit, value: string) => {
     setEdits(prev => ({ ...prev, [row.userId]: { ...getEdit(row), [field]: value } }))
+  }
+
+  const allSelected = rows.length > 0 && rows.every(r => selectedUserIds.has(r.userId))
+  const toggleSelectAll = (checked: boolean) => {
+    setSelectedUserIds(checked ? new Set(rows.map(r => r.userId)) : new Set())
+  }
+  const toggleSelectRow = (userId: number, checked: boolean) => {
+    setSelectedUserIds(prev => {
+      const next = new Set(prev)
+      if (checked) next.add(userId); else next.delete(userId)
+      return next
+    })
+  }
+
+  // 체크된 직원들에게 선택한 필드(출근/퇴근시각)의 값을 한 번에 채워 넣는다. 실제 저장은 기존
+  // "변경 저장" 버튼이 그대로 담당하므로, 여기서는 로컬 편집 상태(edits)만 채운다.
+  const handleApplyBulkField = () => {
+    if (selectedUserIds.size === 0) { toast.error('적용할 직원을 선택해주세요.'); return }
+    if (!bulkTime) { toast.error('적용할 시각을 입력해주세요.'); return }
+    if (!isValidHHMM(bulkTime)) { toast.error('시각 형식이 올바르지 않습니다. (예: 09:00)'); return }
+
+    setEdits(prev => {
+      const next = { ...prev }
+      for (const row of rows) {
+        if (row.closed || !selectedUserIds.has(row.userId)) continue
+        next[row.userId] = { ...(next[row.userId] ?? getEdit(row)), [bulkField]: bulkTime }
+      }
+      return next
+    })
+    toast.success(`${selectedUserIds.size}명에게 적용되었습니다. 내용을 확인한 뒤 변경 저장을 눌러주세요.`)
   }
 
   const changedRows = rows.filter(row => {
@@ -416,7 +485,9 @@ function RegisterBoardTab() {
         const edit = edits[row.userId]
         const finalReason = reason || '출근부(지정일) 화면에서 일괄 보정'
         if (row.attendanceId) {
-          const payload: Record<string, unknown> = { reason: finalReason }
+          // row.workplaceId는 이미 기록된 근무지가 있으면 그 값, 없으면 이 직원에게 배정된 근무지다.
+          // 항상 같이 보내면 기존 값은 그대로 유지되고, 비어 있던 경우에만 배정된 근무지로 채워진다.
+          const payload: Record<string, unknown> = { reason: finalReason, workplaceId: row.workplaceId }
           if (edit.checkInAt !== toLocalHHMM(row.checkInAt)) payload.checkInAt = toIsoFromDateAndTime(date, edit.checkInAt)
           if (edit.checkOutAt !== toLocalHHMM(row.checkOutAt)) payload.checkOutAt = toIsoFromDateAndTime(date, edit.checkOutAt)
           await correctAttendance(row.attendanceId, payload as any)
@@ -425,6 +496,7 @@ function RegisterBoardTab() {
           await createManualAttendance({
             userId: row.userId,
             workDate: date,
+            workplaceId: row.workplaceId,
             checkInAt: toIsoFromDateAndTime(date, edit.checkInAt),
             checkOutAt: toIsoFromDateAndTime(date, edit.checkOutAt),
             status: edit.checkOutAt ? 'FINISHED' : 'WORKING',
@@ -437,6 +509,8 @@ function RegisterBoardTab() {
       toast.success(`${changedRows.length}건 저장되었습니다.`)
       setEdits({})
       setReason('')
+      setSelectedUserIds(new Set())
+      setBulkTime('')
       queryClient.invalidateQueries({ queryKey: ['attendance-register-board'] })
     },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? '저장 실패'),
@@ -457,6 +531,9 @@ function RegisterBoardTab() {
     <AttendanceReasonBar
       reason={reason} onReasonChange={setReason} onSave={handleSave}
       saving={saveMutation.isPending} changedCount={changedRows.length}
+      bulkField={bulkField} onBulkFieldChange={setBulkField}
+      bulkTime={bulkTime} onBulkTimeChange={setBulkTime}
+      onApplyBulk={handleApplyBulkField} selectedCount={selectedUserIds.size}
     />
   )
 
@@ -466,18 +543,24 @@ function RegisterBoardTab() {
         <input type="date" value={date} onChange={e => setDate(e.target.value)} style={filterInputStyle} />
         <select value={organizationId} onChange={e => setOrganizationId(e.target.value)} style={filterInputStyle}>
           <option value="">소속그룹 전체</option>
-          {organizations.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+          {visibleOrganizations.map(o => <option key={o.id} value={o.id}>{orgOptionLabel(o, orgsById)}</option>)}
         </select>
         <input placeholder="직원명 검색" value={employeeName} onChange={e => setEmployeeName(e.target.value)} style={filterInputStyle} />
       </div>
 
       {saveBar}
 
-      <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 6px rgba(0,0,0,0.06)', overflow: 'auto' }}>
+      <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 6px rgba(0,0,0,0.06)', overflow: 'auto', maxHeight: '60vh' }}>
         {isLoading ? <Loading /> : rows.length === 0 ? <Empty text="조회된 직원이 없습니다." /> : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ background: '#f8fafc' }}>
+              <tr style={{ background: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
+                <th style={{ ...thStyle, whiteSpace: 'nowrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={allSelected} onChange={e => toggleSelectAll(e.target.checked)} />
+                    전체선택
+                  </label>
+                </th>
                 {['직원', '근태상황', '수정요청', '근무스케줄', '출근시각', '퇴근시각', '근무시간', '휴식시간', '잔업시간'].map(h => (
                   <th key={h} style={thStyle}>{h}</th>
                 ))}
@@ -490,6 +573,10 @@ function RegisterBoardTab() {
                 const live = computeLiveWorkAndBreak(row, date)
                 return (
                   <tr key={row.userId} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={tdStyle}>
+                      <input type="checkbox" checked={selectedUserIds.has(row.userId)}
+                        onChange={e => toggleSelectRow(row.userId, e.target.checked)} />
+                    </td>
                     <td style={{ ...tdStyle, fontWeight: 500 }}>{row.userName} <span style={{ color: '#94a3b8', fontSize: 12 }}>({row.employeeNumber})</span></td>
                     <td style={tdStyle}>
                       {row.leaveTypeLabel ? <Badge color={STATUS_COLOR.LEAVE}>{row.leaveTypeLabel}</Badge>
@@ -506,7 +593,8 @@ function RegisterBoardTab() {
                         onChange={e => setEdit(row, 'checkInAt', autoFormatHHMM(e.target.value))}
                         style={{
                           ...filterInputStyle, width: 70, textAlign: 'center', opacity: editable ? 1 : 0.5,
-                          borderColor: isValidHHMM(edit.checkInAt) ? undefined : '#ef4444',
+                          borderColor: !isValidHHMM(edit.checkInAt) ? '#ef4444' : edit.checkInAt ? '#1e293b' : undefined,
+                          borderWidth: edit.checkInAt ? 2 : 1,
                         }} />
                     </td>
                     <td style={tdStyle}>
@@ -515,12 +603,13 @@ function RegisterBoardTab() {
                         onChange={e => setEdit(row, 'checkOutAt', autoFormatHHMM(e.target.value))}
                         style={{
                           ...filterInputStyle, width: 70, textAlign: 'center', opacity: editable ? 1 : 0.5,
-                          borderColor: isValidHHMM(edit.checkOutAt) ? undefined : '#ef4444',
+                          borderColor: !isValidHHMM(edit.checkOutAt) ? '#ef4444' : edit.checkOutAt ? '#1e293b' : undefined,
+                          borderWidth: edit.checkOutAt ? 2 : 1,
                         }} />
                     </td>
                     <td style={tdStyle}>{fmtMinKorean(live.workMinutes)}</td>
                     <td style={tdStyle}>{fmtMinKorean(live.breakMinutes)}</td>
-                    <td style={tdStyle}>{row.overtimeMinutes ? `+${row.overtimeMinutes}m` : '-'}</td>
+                    <td style={tdStyle}>{fmtMinKorean(row.overtimeMinutes)}</td>
                   </tr>
                 )
               })}
@@ -609,10 +698,10 @@ function MonthlyTab() {
           </div>
 
           {/* 개인별 상세 테이블 */}
-          <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 6px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
+          <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 6px rgba(0,0,0,0.06)', overflow: 'auto', maxHeight: '60vh' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ background: '#f8fafc' }}>
+                <tr style={{ background: '#f8fafc', position: 'sticky', top: 0, zIndex: 1 }}>
                   {['사번', '이름', '기록일수', '출근', '지각', '조퇴', '결근', '총근무', '초과'].map(h => (
                     <th key={h} style={thStyle}>{h}</th>
                   ))}

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getUsers, createUser, lockUser, unlockUser, bulkCreateUsers, downloadBulkImportTemplate,
-  updateUserProfile, changeUserRole, resignUser, resetUserPassword, setUserPassword, listUserDevices, revokeUserDevice,
+  updateUserProfile, changeUserRole, resignUser, deleteUser, resetUserPassword, setUserPassword, listUserDevices, revokeUserDevice,
 } from '@/api/users'
 import type { BulkUserImportResponse } from '@/api/users'
 import { getOrganizations } from '@/api/organizations'
@@ -12,16 +12,10 @@ import type { User, UserRole, Organization, UserDevice, Workplace, WorkSchedule 
 import { useAuthStore } from '@/store/authStore'
 import { usePermissions } from '@/hooks/usePermissions'
 import { useLevelOptions } from '@/hooks/useLevelOptions'
+import { orgOptionLabel, buildOrgsById, sortOrgsHierarchically } from '@/utils/organizations'
 import toast from 'react-hot-toast'
 
 const COMPANY_ID = 1
-
-// 부서 선택 드롭다운에서 이름만으로는 같은 이름의 하위조직을 구분하기 어려우므로
-// 상위부서명을 앞에 붙여 보여준다(예: "DT운영본부 > 미디어운영팀").
-function orgOptionLabel(org: Organization, orgsById: Map<number, Organization>): string {
-  const parent = org.parentId != null ? orgsById.get(org.parentId) : undefined
-  return parent ? `${parent.name} > ${org.name}` : org.name
-}
 
 const ROLE_LABEL: Record<UserRole, string> = {
   EMPLOYEE: '직원',
@@ -166,7 +160,8 @@ function EditModal({ user, canChangeRole, canChangeLevel, onClose }: {
     queryKey: ['organizations', COMPANY_ID],
     queryFn: () => getOrganizations(COMPANY_ID).then(r => r.data.data),
   })
-  const orgsById = new Map(organizations.map((o) => [o.id, o]))
+  const orgsById = buildOrgsById(organizations)
+  const sortedOrganizations = sortOrgsHierarchically(organizations)
 
   const set = (k: keyof EditFormData, v: string) => setForm((prev) => ({ ...prev, [k]: v }))
 
@@ -241,7 +236,7 @@ function EditModal({ user, canChangeRole, canChangeLevel, onClose }: {
             <label style={labelStyle}>소속 조직</label>
             <select value={form.organizationId} onChange={(e) => set('organizationId', e.target.value)} style={{ ...inputStyle, width: '100%' }}>
               <option value="">선택 안 함</option>
-              {organizations.map((o: Organization) => (
+              {sortedOrganizations.map((o: Organization) => (
                 <option key={o.id} value={o.id}>{orgOptionLabel(o, orgsById)}</option>
               ))}
             </select>
@@ -619,8 +614,14 @@ export default function EmployeesPage() {
   const [passwordTarget, setPasswordTarget] = useState<User | null>(null)
   const queryClient = useQueryClient()
   const role = useAuthStore(s => s.role)
+  const level = useAuthStore(s => s.level)
   const canChangeRole = role === 'SYSTEM_ADMIN'
   const canManageEmployment = role === 'HR_ADMIN' || role === 'SYSTEM_ADMIN'
+  // 근무지·근무제 배정 화면(사번/이름 클릭)은 권한레벨(LEVEL_ROLL)이 시스템 관리자(SYSADMIN)일 때만 연다.
+  const canAssign = level === 'SYSADMIN'
+  // 완전 삭제 버튼은 권한레벨(LEVEL_ROLL)이 시스템 관리자(SYSADMIN)이면서, 대상이 이미
+  // 퇴사 처리(INACTIVE)된 직원일 때만 보인다.
+  const canDelete = level === 'SYSADMIN'
   const { isActionEnabled } = usePermissions()
   const canCreate = isActionEnabled('employees', 'CREATE')
   const canBulkCreate = isActionEnabled('employees', 'BULK_CREATE')
@@ -632,7 +633,8 @@ export default function EmployeesPage() {
     queryKey: ['organizations', COMPANY_ID],
     queryFn: () => getOrganizations(COMPANY_ID).then(r => r.data.data),
   })
-  const orgsById = new Map(organizations.map((o) => [o.id, o]))
+  const orgsById = buildOrgsById(organizations)
+  const sortedOrganizations = sortOrgsHierarchically(organizations)
 
   const filters = {
     organizationId: organizationId ? Number(organizationId) : undefined,
@@ -674,9 +676,24 @@ export default function EmployeesPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? '비밀번호 초기화 실패'),
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => deleteUser(id),
+    onSuccess: () => {
+      toast.success('삭제되었습니다.')
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? '삭제 실패'),
+  })
+
   const handleResign = (u: User) => {
     const resignDate = window.prompt(`"${u.name}"님의 퇴사일을 입력해주세요 (YYYY-MM-DD)`, new Date().toISOString().slice(0, 10))
     if (resignDate) resign.mutate({ id: u.id, resignDate })
+  }
+
+  const handleDelete = (u: User) => {
+    if (confirm(`"${u.name}"(${u.employeeNumber}) 계정과 본인의 출퇴근·신청·기기·알림 등 모든 이력을 DB에서 완전히 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) {
+      deleteMutation.mutate(u.id)
+    }
   }
 
   const users = data?.content ?? []
@@ -714,7 +731,7 @@ export default function EmployeesPage() {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
         <select value={organizationId} onChange={(e) => handleOrganizationChange(e.target.value)} style={{ ...inputStyle, width: 180 }}>
           <option value="">부서 전체</option>
-          {organizations.map((o) => <option key={o.id} value={o.id}>{orgOptionLabel(o, orgsById)}</option>)}
+          {sortedOrganizations.map((o) => <option key={o.id} value={o.id}>{orgOptionLabel(o, orgsById)}</option>)}
         </select>
         <input
           value={nameSearch}
@@ -748,16 +765,16 @@ export default function EmployeesPage() {
               {users.map((u: User) => (
                 <tr key={u.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                   <td
-                    style={{ ...tdStyle, cursor: 'pointer', color: '#2563eb' }}
-                    onClick={() => setAssignmentTarget(u)}
-                    title="근무지·근무제 배정"
+                    style={canAssign ? { ...tdStyle, cursor: 'pointer', color: '#2563eb' } : tdStyle}
+                    onClick={canAssign ? () => setAssignmentTarget(u) : undefined}
+                    title={canAssign ? '근무지·근무제 배정' : undefined}
                   >
                     {u.employeeNumber}
                   </td>
                   <td
-                    style={{ ...tdStyle, fontWeight: 500, cursor: 'pointer', color: '#2563eb' }}
-                    onClick={() => setAssignmentTarget(u)}
-                    title="근무지·근무제 배정"
+                    style={canAssign ? { ...tdStyle, fontWeight: 500, cursor: 'pointer', color: '#2563eb' } : { ...tdStyle, fontWeight: 500 }}
+                    onClick={canAssign ? () => setAssignmentTarget(u) : undefined}
+                    title={canAssign ? '근무지·근무제 배정' : undefined}
                   >
                     {u.name}
                   </td>
@@ -808,6 +825,11 @@ export default function EmployeesPage() {
                             </button>
                           )}
                         </>
+                      )}
+                      {canDelete && u.status === 'INACTIVE' && (
+                        <button onClick={() => handleDelete(u)} disabled={deleteMutation.isPending} style={rowBtnStyle('#ef4444')}>
+                          삭제
+                        </button>
                       )}
                     </div>
                   </td>

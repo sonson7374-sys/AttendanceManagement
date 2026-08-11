@@ -14,4 +14,5 @@ public interface UserWorkplaceRepository extends JpaRepository<UserWorkplace, Lo
     boolean existsByUserIdAndWorkplaceId(Long userId, Long workplaceId);
     void deleteByUserIdAndWorkplaceId(Long userId, Long workplaceId);
     List<UserWorkplace> findByUserIdIn(Collection<Long> userIds);
+    List<UserWorkplace> findByAssignedBy(Long assignedBy);
 }

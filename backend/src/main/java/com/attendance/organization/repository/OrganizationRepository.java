@@ -10,4 +10,5 @@ public interface OrganizationRepository extends JpaRepository<Organization, Long
     List<Organization> findByCompanyIdAndActive(Long companyId, boolean active);
     List<Organization> findByParentId(Long parentId);
     Optional<Organization> findByCompanyIdAndName(Long companyId, String name);
+    Optional<Organization> findByCompanyIdAndNameAndParentId(Long companyId, String name, Long parentId);
 }

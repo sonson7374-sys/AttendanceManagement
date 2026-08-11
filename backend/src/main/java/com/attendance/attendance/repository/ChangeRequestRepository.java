@@ -14,6 +14,8 @@ public interface ChangeRequestRepository extends JpaRepository<AttendanceChangeR
 
     List<AttendanceChangeRequest> findByRequesterIdOrderByCreatedAtDesc(Long requesterId);
 
+    List<AttendanceChangeRequest> findByCurrentApproverId(Long currentApproverId);
+
     List<AttendanceChangeRequest> findByStatusOrderByCreatedAtAsc(ChangeRequestStatus status);
 
     Page<AttendanceChangeRequest> findAllByOrderByCreatedAtDesc(Pageable pageable);

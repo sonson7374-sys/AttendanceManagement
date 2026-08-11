@@ -70,6 +70,14 @@ public class WorkplaceController {
         return ResponseEntity.ok(ApiResponse.ok());
     }
 
+    @DeleteMapping("/{id}/permanent")
+    @PreAuthorize("hasRole('SYSTEM_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> permanentlyDeleteWorkplace(
+            @PathVariable Long id, @AuthenticationPrincipal UserPrincipal principal) {
+        workplaceService.permanentlyDeleteWorkplace(id, principal);
+        return ResponseEntity.ok(ApiResponse.ok());
+    }
+
     @PostMapping("/{workplaceId}/users/{userId}")
     @PreAuthorize("hasAnyRole('HR_ADMIN', 'SYSTEM_ADMIN')")
     public ResponseEntity<ApiResponse<Void>> assignUser(

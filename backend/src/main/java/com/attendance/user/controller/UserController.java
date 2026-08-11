@@ -99,6 +99,14 @@ public class UserController {
         return ResponseEntity.ok(ApiResponse.ok());
     }
 
+    @DeleteMapping("/{userId}")
+    @PreAuthorize("hasRole('SYSTEM_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> deleteUser(
+            @PathVariable Long userId, @AuthenticationPrincipal UserPrincipal principal) {
+        userService.deleteUser(userId, principal.getId(), principal.getUsername());
+        return ResponseEntity.ok(ApiResponse.ok());
+    }
+
     @PostMapping("/{userId}/reset-password")
     @PreAuthorize("hasAnyRole('HR_ADMIN', 'SYSTEM_ADMIN')")
     public ResponseEntity<ApiResponse<PasswordResetResponse>> resetPassword(

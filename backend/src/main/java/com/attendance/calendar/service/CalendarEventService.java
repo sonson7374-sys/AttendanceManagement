@@ -23,12 +23,13 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 일정관리(캘린더). "전체" 일정은 로그인한 모든 사용자에게 보이고, "개인" 일정은 등록한 본인에게만 보인다
+ * 일정관리(캘린더). 조회는 권한레벨과 무관하게 항상 본인이 등록했거나 본인을 대상으로 하는 일정만 보인다
+ * ("전체" 공개범위 일정도 본인이 등록한 것이 아니면 다른 사람에게는 보이지 않는다).
  * (개인 일정은 대상 직원을 별도로 지정하지 않고 항상 작성자 본인 기준으로 등록된다).
  * - "전체" 공개범위로 등록/수정하는 것은 권한레벨(level, 그룹코드 LEVEL_ROLL)이 SYSADMIN/HRADMIN/PRESIDENT인
  *   계정만 가능하다(승인함의 승인/반려 권한과 동일한 기준).
  * - "개인" 일정은 인증된 모든 사용자가 등록할 수 있고, 본인의 개인 일정만 수정·삭제할 수 있다.
- * - 위 권한레벨 계정은 전체/개인 구분 없이 모든 일정을 등록·수정·삭제할 수 있다.
+ * - 위 권한레벨 계정은 전체/개인 구분 없이 본인이 등록한 모든 일정을 수정·삭제할 수 있다.
  */
 @Service
 @RequiredArgsConstructor
@@ -40,15 +41,16 @@ public class CalendarEventService {
     private final UserRepository userRepository;
     private final AuditLogService auditLogService;
 
+    /**
+     * 일정관리 목록 조회. 권한레벨과 무관하게 본인이 등록했거나 본인을 대상으로 하는 일정만 보여준다
+     * (등록·수정 시의 "전체" 공개범위 권한 제한과는 별개로, 조회 범위는 항상 본인 것만이다).
+     */
     @Transactional(readOnly = true)
     public java.util.List<CalendarEventResponse> list(Long actorId, LocalDate from, LocalDate to) {
-        User actor = findUser(actorId);
         Instant rangeStart = from.atStartOfDay(AppConfig.SEOUL).toInstant();
         Instant rangeEnd = to.plusDays(1).atStartOfDay(AppConfig.SEOUL).toInstant();
 
-        java.util.List<CalendarEvent> events = SCHEDULE_ADMIN_LEVELS.contains(actor.getLevel())
-                ? calendarEventRepository.findAllInRange(rangeStart, rangeEnd)
-                : calendarEventRepository.findVisibleInRange(rangeStart, rangeEnd, actorId, CalendarEventVisibility.ALL);
+        java.util.List<CalendarEvent> events = calendarEventRepository.findOwnInRange(rangeStart, rangeEnd, actorId);
 
         return events.stream().map(this::toResponse).toList();
     }
@@ -148,11 +150,6 @@ public class CalendarEventService {
         if (!ownsPersonalEvent) {
             throw new AttendanceException(ErrorCode.ACCESS_DENIED);
         }
-    }
-
-    private User findUser(Long userId) {
-        return userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalStateException("사용자를 찾을 수 없습니다: " + userId));
     }
 
     private CalendarEventResponse toResponse(CalendarEvent e) {

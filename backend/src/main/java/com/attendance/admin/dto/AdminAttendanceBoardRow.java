@@ -26,6 +26,9 @@ public class AdminAttendanceBoardRow {
     private AttendanceStatus status;
     private Instant checkInAt;
     private Instant checkOutAt;
+    /** 근태 기록에 이미 저장된 근무지가 있으면 그 값, 없으면 이 직원에게 배정된 근무지(있는 경우). */
+    private Long workplaceId;
+    private String workplaceName;
     private LocalTime scheduleStartTime;
     private LocalTime scheduleEndTime;
     private Integer workMinutes;
@@ -39,7 +42,7 @@ public class AdminAttendanceBoardRow {
 
     public static AdminAttendanceBoardRow of(User user, AttendanceRecord record, WorkSchedule schedule,
                                               boolean late, boolean earlyLeave, boolean hasPendingChangeRequest,
-                                              String leaveTypeLabel) {
+                                              String leaveTypeLabel, Long workplaceId, String workplaceName) {
         // 일괄등록(엑셀)으로 승인된 휴가는 근태 기록에 자동 반영되지 않아 record가 없거나 상태가 낡을 수 있으므로,
         // 그날 승인된 휴가가 확인되면(leaveTypeLabel != null) 근태 기록 유무와 상관없이 근태상황을 휴가로 표시한다.
         AttendanceStatus status = leaveTypeLabel != null ? AttendanceStatus.LEAVE
@@ -53,6 +56,8 @@ public class AdminAttendanceBoardRow {
                 .status(status)
                 .checkInAt(record != null ? record.getCheckInAt() : null)
                 .checkOutAt(record != null ? record.getCheckOutAt() : null)
+                .workplaceId(workplaceId)
+                .workplaceName(workplaceName)
                 .scheduleStartTime(schedule != null ? schedule.getWorkStartTime() : null)
                 .scheduleEndTime(schedule != null ? schedule.getWorkEndTime() : null)
                 .workMinutes(record != null ? record.getWorkMinutes() : null)

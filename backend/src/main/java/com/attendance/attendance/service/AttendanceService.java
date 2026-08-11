@@ -204,7 +204,9 @@ public class AttendanceService {
         long totalMinutes = Duration.between(record.getCheckInAt(), checkOutTime).toMinutes();
         long breakMinutes = schedule.getBreakMinutes();
         long workMinutes = Math.max(0, totalMinutes - breakMinutes);
-        long overtimeMinutes = Math.max(0, workMinutes - schedule.getOvertimeThresholdMin());
+        // 잔업시간은 "근무스케줄 외 근무시간"(조기 출근 + 늦은 퇴근)과 같은 기준으로 계산해 저장한다.
+        long overtimeMinutes = scheduleEvaluator.computeOutsideScheduleMinutes(
+                record.getCheckInAt(), checkOutTime, workDate, schedule);
 
         // 6. 조퇴 판정
         boolean earlyLeave = scheduleEvaluator.isEarlyLeave(checkOutTime, schedule);

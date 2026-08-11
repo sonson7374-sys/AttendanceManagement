@@ -130,10 +130,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 // 로고 영역
-                Icon(
-                  Icons.location_on_rounded,
-                  size: 64,
-                  color: theme.colorScheme.primary,
+                Image.asset(
+                  'assets/images/uracle_logo.png',
+                  height: 56,
                 ),
                 const SizedBox(height: 16),
                 Text(

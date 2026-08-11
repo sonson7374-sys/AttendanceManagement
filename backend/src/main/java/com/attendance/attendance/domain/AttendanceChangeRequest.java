@@ -95,4 +95,9 @@ public class AttendanceChangeRequest {
     public boolean isPending() {
         return status == ChangeRequestStatus.PENDING;
     }
+
+    /** 승인자 계정이 삭제될 때, 다른 사람이 제출한 이 신청 자체는 남기고 승인자 참조만 끊는다. */
+    public void detachApprover() {
+        this.currentApproverId = null;
+    }
 }

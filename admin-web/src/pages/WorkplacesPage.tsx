@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getWorkplaces, createWorkplace, updateWorkplace, deactivateWorkplace, activateWorkplace, getAssignedUsers, assignUserToWorkplace, removeUserFromWorkplace, bulkAssignUsersToWorkplace } from '@/api/workplaces'
+import { getWorkplaces, createWorkplace, updateWorkplace, deactivateWorkplace, activateWorkplace, permanentlyDeleteWorkplace, getAssignedUsers, assignUserToWorkplace, removeUserFromWorkplace, bulkAssignUsersToWorkplace } from '@/api/workplaces'
 import { getMyAssignedWorkplaces } from '@/api/myAttendance'
 import { getMyWorkplaceChangeRequests, submitWorkplaceChangeRequest } from '@/api/workplaceChangeRequests'
 import { getUsers } from '@/api/users'
@@ -308,8 +308,8 @@ function formatMonthDay(dateStr: string) {
   return `${d.getMonth() + 1}월 ${d.getDate()}일`
 }
 
-function WorkplaceCard({ workplace, onAssign, onEdit, onDelete, onRestore, canManage, canEdit, canRequestChange, onRequestChange, pendingChangeRequest, latestChangeRequest }: {
-  workplace: Workplace; onAssign: () => void; onEdit: () => void; onDelete: () => void; onRestore: () => void
+function WorkplaceCard({ workplace, onAssign, onEdit, onDelete, onRestore, onPermanentDelete, canManage, canEdit, canRequestChange, onRequestChange, pendingChangeRequest, latestChangeRequest }: {
+  workplace: Workplace; onAssign: () => void; onEdit: () => void; onDelete: () => void; onRestore: () => void; onPermanentDelete: () => void
   canManage: boolean; canEdit: boolean
   canRequestChange?: boolean; onRequestChange?: () => void; pendingChangeRequest?: WorkplaceChangeRequest; latestChangeRequest?: WorkplaceChangeRequest
 }) {
@@ -406,9 +406,14 @@ function WorkplaceCard({ workplace, onAssign, onEdit, onDelete, onRestore, canMa
           </>
         ) : (
           canManage && (
-            <button onClick={onRestore} style={{ flex: 1, padding: '8px 0', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-              복구
-            </button>
+            <>
+              <button onClick={onRestore} style={{ flex: 1, padding: '8px 0', background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                복구
+              </button>
+              <button onClick={onPermanentDelete} style={{ flex: 1, padding: '8px 0', background: '#fff', color: '#ef4444', border: '1px solid #fca5a5', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                완전삭제
+              </button>
+            </>
           )
         )}
       </div>
@@ -702,6 +707,12 @@ export default function WorkplacesPage() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? '복구 실패'),
   })
 
+  const permanentDeleteMutation = useMutation({
+    mutationFn: (id: number) => permanentlyDeleteWorkplace(id),
+    onSuccess: () => { toast.success('근무지가 완전히 삭제되었습니다.'); queryClient.invalidateQueries({ queryKey: ['workplaces'] }) },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? '완전삭제 실패'),
+  })
+
   const handleDelete = (w: Workplace) => {
     if (confirm(`"${w.name}" 근무지를 삭제하시겠습니까?\n배정된 직원의 출퇴근에 더 이상 사용할 수 없게 됩니다.`)) {
       deleteMutation.mutate(w.id)
@@ -711,6 +722,12 @@ export default function WorkplacesPage() {
   const handleRestore = (w: Workplace) => {
     if (confirm(`"${w.name}" 근무지를 복구하시겠습니까?`)) {
       restoreMutation.mutate(w.id)
+    }
+  }
+
+  const handlePermanentDelete = (w: Workplace) => {
+    if (confirm(`"${w.name}" 근무지를 DB에서 완전히 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다. (출퇴근 기록 등 사용 이력이 있으면 삭제되지 않습니다.)`)) {
+      permanentDeleteMutation.mutate(w.id)
     }
   }
 
@@ -740,6 +757,7 @@ export default function WorkplacesPage() {
             onEdit={() => setEditTarget(w)}
             onDelete={() => handleDelete(w)}
             onRestore={() => handleRestore(w)}
+            onPermanentDelete={() => handlePermanentDelete(w)}
             canManage={canManage}
             canEdit={canEdit}
             canRequestChange={isPlainEmployee}

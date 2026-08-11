@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/authStore'
 import * as authApi from '@/api/auth'
 import toast from 'react-hot-toast'
+import uracleLogo from '@/assets/uracle-logo.png'
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -39,6 +40,7 @@ export default function LoginPage() {
         background: '#fff', padding: 40, borderRadius: 12,
         boxShadow: '0 4px 24px rgba(0,0,0,0.08)', width: 380,
       }}>
+        <img src={uracleLogo} alt="uracle" style={{ height: 32, marginBottom: 20, display: 'block' }} />
         <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8, color: '#1e293b' }}>
           근태 관리 시스템
         </h1>

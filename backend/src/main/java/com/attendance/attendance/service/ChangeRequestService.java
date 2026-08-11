@@ -228,7 +228,9 @@ public class ChangeRequestService {
         long totalMinutes = Duration.between(record.getCheckInAt(), newCheckOutAt).toMinutes();
         long breakMinutes = schedule.getBreakMinutes();
         long workMinutes = Math.max(0, totalMinutes - breakMinutes);
-        long overtimeMinutes = Math.max(0, workMinutes - schedule.getOvertimeThresholdMin());
+        // 잔업시간은 "근무스케줄 외 근무시간"(조기 출근 + 늦은 퇴근)과 같은 기준으로 계산해 저장한다.
+        long overtimeMinutes = scheduleEvaluator.computeOutsideScheduleMinutes(
+                record.getCheckInAt(), newCheckOutAt, record.getWorkDate(), schedule);
         boolean earlyLeave = scheduleEvaluator.isEarlyLeave(newCheckOutAt, schedule);
         record.correctCheckOut(newCheckOutAt, (int) workMinutes, (int) breakMinutes,
                 (int) overtimeMinutes, earlyLeave);

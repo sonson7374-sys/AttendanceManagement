@@ -13,6 +13,8 @@ public interface WorkScheduleChangeRequestRepository extends JpaRepository<WorkS
 
     List<WorkScheduleChangeRequest> findByRequesterIdOrderByCreatedAtDesc(Long requesterId);
 
+    List<WorkScheduleChangeRequest> findByCurrentApproverId(Long currentApproverId);
+
     List<WorkScheduleChangeRequest> findByStatusOrderByCreatedAtAsc(ChangeRequestStatus status);
 
     Page<WorkScheduleChangeRequest> findAllByOrderByCreatedAtDesc(Pageable pageable);

@@ -18,6 +18,9 @@ public enum ErrorCode {
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "USER_001", "사용자를 찾을 수 없습니다."),
     EMAIL_ALREADY_EXISTS(HttpStatus.CONFLICT, "USER_002", "이미 사용 중인 이메일입니다."),
     EMPLOYEE_NUMBER_ALREADY_EXISTS(HttpStatus.CONFLICT, "USER_003", "이미 사용 중인 사번입니다."),
+    CANNOT_DELETE_SELF(HttpStatus.CONFLICT, "USER_004", "본인 계정은 삭제할 수 없습니다."),
+    USER_IN_USE(HttpStatus.CONFLICT, "USER_005", "출퇴근·신청 등 사용 이력이 있는 사용자는 삭제할 수 없습니다."),
+    USER_NOT_RESIGNED(HttpStatus.CONFLICT, "USER_006", "퇴사 처리된 사용자만 완전히 삭제할 수 있습니다."),
 
     // Company / Organization
     COMPANY_NOT_FOUND(HttpStatus.NOT_FOUND, "ORG_001", "회사를 찾을 수 없습니다."),
@@ -30,6 +33,8 @@ public enum ErrorCode {
     WORKPLACE_CHECK_OUT_NOT_ALLOWED(HttpStatus.UNPROCESSABLE_ENTITY, "WP_004", "해당 근무지는 퇴근 처리가 허용되지 않습니다."),
     WORKPLACE_CHANGE_REQUEST_NOT_FOUND(HttpStatus.NOT_FOUND, "WP_005", "근무지 변경 요청을 찾을 수 없습니다."),
     WORKPLACE_CHANGE_REQUEST_NOT_PENDING(HttpStatus.CONFLICT, "WP_006", "이미 처리된 근무지 변경 요청입니다."),
+    WORKPLACE_NOT_DEACTIVATED(HttpStatus.CONFLICT, "WP_007", "비활성화(삭제)된 근무지만 완전히 삭제할 수 있습니다."),
+    WORKPLACE_IN_USE(HttpStatus.CONFLICT, "WP_008", "사용 이력이 있는 근무지는 완전히 삭제할 수 없습니다."),
 
     // Work Schedule
     WORK_SCHEDULE_CHANGE_REQUEST_NOT_FOUND(HttpStatus.NOT_FOUND, "WS_001", "근무제 변경 요청을 찾을 수 없습니다."),

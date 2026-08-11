@@ -13,6 +13,8 @@ public interface OutsideWorkRequestRepository extends JpaRepository<OutsideWorkR
 
     List<OutsideWorkRequest> findByRequesterIdOrderByCreatedAtDesc(Long requesterId);
 
+    List<OutsideWorkRequest> findByCurrentApproverId(Long currentApproverId);
+
     List<OutsideWorkRequest> findByStatusOrderByCreatedAtAsc(ChangeRequestStatus status);
 
     Page<OutsideWorkRequest> findAllByOrderByCreatedAtDesc(Pageable pageable);

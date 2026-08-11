@@ -120,6 +120,8 @@ export interface AttendanceBoardRow {
   status?: AttendanceStatus
   checkInAt?: string
   checkOutAt?: string
+  workplaceId?: number
+  workplaceName?: string
   scheduleStartTime?: string
   scheduleEndTime?: string
   workMinutes?: number
@@ -267,14 +269,16 @@ export interface ApprovalQueueItem {
 export interface DepartmentAttendanceRate {
   organizationId: number
   organizationName: string
+  parentOrganizationName?: string
   presentCount: number
   totalCount: number
   rate: number
 }
 
-export interface MonthlyLateTrendPoint {
-  yearMonth: string
-  lateCount: number
+export interface HourlyAttendancePoint {
+  hour: string
+  checkInCount: number
+  checkOutCount: number
 }
 
 export interface DashboardStats {
@@ -287,7 +291,7 @@ export interface DashboardStats {
   checkedOutToday: number
   pendingApprovals: number
   departmentAttendanceRates: DepartmentAttendanceRate[]
-  monthlyLateTrend: MonthlyLateTrendPoint[]
+  hourlyAttendance: HourlyAttendancePoint[]
 }
 
 export interface MonthlyUserSummary {

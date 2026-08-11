@@ -9,11 +9,13 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.List;
 
 public interface AuditLogRepository extends JpaRepository<AuditLog, Long> {
     Page<AuditLog> findByCreatedAtBetweenOrderByCreatedAtDesc(Instant from, Instant to, Pageable pageable);
     Page<AuditLog> findByActorEmailContainingIgnoreCaseOrderByCreatedAtDesc(String email, Pageable pageable);
     Page<AuditLog> findAllByOrderByCreatedAtDesc(Pageable pageable);
+    List<AuditLog> findByActorId(Long actorId);
 
     @Modifying
     @Query("DELETE FROM AuditLog a WHERE a.createdAt < :cutoff")

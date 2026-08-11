@@ -17,5 +17,5 @@ public class DashboardStatsResponse {
     private long checkedOutToday;
     private long pendingApprovals;
     private List<DepartmentAttendanceRate> departmentAttendanceRates;
-    private List<MonthlyLateTrendPoint> monthlyLateTrend;
+    private List<HourlyAttendancePoint> hourlyAttendance;
 }
