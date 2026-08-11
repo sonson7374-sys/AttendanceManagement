@@ -13,14 +13,16 @@ public class UserPrincipal implements UserDetails {
     private final String email;
     private final String password;
     private final String level;
+    private final Long companyId;
     private final Collection<? extends GrantedAuthority> authorities;
 
-    public UserPrincipal(Long id, String email, String password, String level,
+    public UserPrincipal(Long id, String email, String password, String level, Long companyId,
                          Collection<? extends GrantedAuthority> authorities) {
         this.id = id;
         this.email = email;
         this.password = password;
         this.level = level;
+        this.companyId = companyId;
         this.authorities = authorities;
     }
 

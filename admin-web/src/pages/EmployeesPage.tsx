@@ -15,8 +15,6 @@ import { useLevelOptions } from '@/hooks/useLevelOptions'
 import { orgOptionLabel, buildOrgsById, sortOrgsHierarchically } from '@/utils/organizations'
 import toast from 'react-hot-toast'
 
-const COMPANY_ID = 1
-
 const ROLE_LABEL: Record<UserRole, string> = {
   EMPLOYEE: '직원',
   MANAGER: '관리자',
@@ -29,7 +27,7 @@ const STATUS_LABEL = { ACTIVE: '활성', INACTIVE: '비활성', LOCKED: '잠금'
 
 interface CreateFormData {
   email: string; password: string; name: string
-  employeeNumber: string; role: UserRole; level: string; companyId: number
+  employeeNumber: string; role: UserRole; level: string
 }
 
 function CreateModal({ onClose }: { onClose: () => void }) {
@@ -37,7 +35,7 @@ function CreateModal({ onClose }: { onClose: () => void }) {
   const levelOptions = useLevelOptions()
   const [form, setForm] = useState<CreateFormData>({
     email: '', password: '', name: '', employeeNumber: '',
-    role: 'EMPLOYEE', level: '', companyId: 1,
+    role: 'EMPLOYEE', level: '',
   })
   const [loading, setLoading] = useState(false)
 
@@ -157,8 +155,8 @@ function EditModal({ user, canChangeRole, canChangeLevel, onClose }: {
   const [loading, setLoading] = useState(false)
 
   const { data: organizations = [] } = useQuery({
-    queryKey: ['organizations', COMPANY_ID],
-    queryFn: () => getOrganizations(COMPANY_ID).then(r => r.data.data),
+    queryKey: ['organizations'],
+    queryFn: () => getOrganizations().then(r => r.data.data),
   })
   const orgsById = buildOrgsById(organizations)
   const sortedOrganizations = sortOrgsHierarchically(organizations)
@@ -294,7 +292,7 @@ function BulkImportModal({ onClose }: { onClose: () => void }) {
     setUploading(true)
     setResult(null)
     try {
-      const res = await bulkCreateUsers(COMPANY_ID, file)
+      const res = await bulkCreateUsers(file)
       setResult(res.data.data)
       queryClient.invalidateQueries({ queryKey: ['users'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
@@ -429,15 +427,13 @@ function DeviceModal({ user, onClose }: { user: User; onClose: () => void }) {
   )
 }
 
-const COMPANY_ID_FOR_ASSIGNMENT = 1
-
 function AssignmentModal({ user, onClose }: { user: User; onClose: () => void }) {
   const queryClient = useQueryClient()
   const [selectedScheduleId, setSelectedScheduleId] = useState<number | ''>('')
 
   const { data: allWorkplaces = [] } = useQuery({
     queryKey: ['workplaces', false],
-    queryFn: () => getWorkplaces(COMPANY_ID_FOR_ASSIGNMENT).then(r => r.data.data),
+    queryFn: () => getWorkplaces().then(r => r.data.data),
   })
   const { data: assignedWorkplaces = [], isLoading: workplacesLoading } = useQuery({
     queryKey: ['user-workplaces', user.id],
@@ -630,8 +626,8 @@ export default function EmployeesPage() {
   const levelLabel: Record<string, string> = Object.fromEntries(levelOptions.map(o => [o.value, o.label]))
 
   const { data: organizations = [] } = useQuery({
-    queryKey: ['organizations', COMPANY_ID],
-    queryFn: () => getOrganizations(COMPANY_ID).then(r => r.data.data),
+    queryKey: ['organizations'],
+    queryFn: () => getOrganizations().then(r => r.data.data),
   })
   const orgsById = buildOrgsById(organizations)
   const sortedOrganizations = sortOrgsHierarchically(organizations)

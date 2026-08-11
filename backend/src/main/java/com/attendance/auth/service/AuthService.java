@@ -1,8 +1,12 @@
 package com.attendance.auth.service;
 
+import com.attendance.auth.domain.BlacklistedToken;
+import com.attendance.auth.domain.RefreshToken;
 import com.attendance.auth.dto.LoginRequest;
 import com.attendance.auth.dto.LoginResponse;
 import com.attendance.auth.jwt.JwtTokenProvider;
+import com.attendance.auth.repository.BlacklistedTokenRepository;
+import com.attendance.auth.repository.RefreshTokenRepository;
 import com.attendance.audit.service.AuditLogService;
 import com.attendance.common.exception.AttendanceException;
 import com.attendance.common.exception.ErrorCode;
@@ -12,12 +16,12 @@ import com.attendance.user.repository.UserRepository;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Map;
 
 @Slf4j
@@ -25,15 +29,14 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AuthService {
 
-    private static final String REFRESH_TOKEN_PREFIX = "refresh:";
-    private static final String BLACKLIST_PREFIX = "blacklist:";
-
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
-    private final RedisTemplate<String, String> redisTemplate;
+    private final RefreshTokenRepository refreshTokenRepository;
+    private final BlacklistedTokenRepository blacklistedTokenRepository;
     private final SecurityPolicyProperties securityPolicyProperties;
     private final AuditLogService auditLogService;
+    private final Clock clock;
 
     @Transactional
     public LoginResponse login(LoginRequest request) {
@@ -58,11 +61,8 @@ public class AuthService {
         String accessToken = jwtTokenProvider.createAccessToken(user.getId(), user.getEmail(), user.getRole().name());
         String refreshToken = jwtTokenProvider.createRefreshToken(user.getId());
 
-        redisTemplate.opsForValue().set(
-                REFRESH_TOKEN_PREFIX + user.getId(),
-                refreshToken,
-                Duration.ofSeconds(jwtTokenProvider.getRefreshTokenExpireSeconds())
-        );
+        refreshTokenRepository.save(new RefreshToken(user.getId(), refreshToken,
+                Instant.now(clock).plusSeconds(jwtTokenProvider.getRefreshTokenExpireSeconds())));
 
         return LoginResponse.builder()
                 .accessToken(accessToken)
@@ -75,6 +75,7 @@ public class AuthService {
                 .build();
     }
 
+    @Transactional
     public LoginResponse refresh(String refreshToken) {
         Claims claims = jwtTokenProvider.parseToken(refreshToken);
         if (!"refresh".equals(claims.get("type", String.class))) {
@@ -82,8 +83,8 @@ public class AuthService {
         }
 
         Long userId = Long.parseLong(claims.getSubject());
-        String stored = redisTemplate.opsForValue().get(REFRESH_TOKEN_PREFIX + userId);
-        if (!refreshToken.equals(stored)) {
+        RefreshToken stored = refreshTokenRepository.findById(userId).orElse(null);
+        if (stored == null || !refreshToken.equals(stored.getToken()) || stored.getExpiresAt().isBefore(Instant.now(clock))) {
             throw new AttendanceException(ErrorCode.INVALID_TOKEN);
         }
 
@@ -93,11 +94,8 @@ public class AuthService {
         String newAccessToken = jwtTokenProvider.createAccessToken(user.getId(), user.getEmail(), user.getRole().name());
         String newRefreshToken = jwtTokenProvider.createRefreshToken(user.getId());
 
-        redisTemplate.opsForValue().set(
-                REFRESH_TOKEN_PREFIX + userId,
-                newRefreshToken,
-                Duration.ofSeconds(jwtTokenProvider.getRefreshTokenExpireSeconds())
-        );
+        refreshTokenRepository.save(new RefreshToken(userId, newRefreshToken,
+                Instant.now(clock).plusSeconds(jwtTokenProvider.getRefreshTokenExpireSeconds())));
 
         return LoginResponse.builder()
                 .accessToken(newAccessToken)
@@ -110,17 +108,14 @@ public class AuthService {
                 .build();
     }
 
+    @Transactional
     public void logout(Long userId, String accessToken) {
-        redisTemplate.delete(REFRESH_TOKEN_PREFIX + userId);
+        refreshTokenRepository.deleteById(userId);
         try {
             Claims claims = jwtTokenProvider.parseToken(accessToken);
-            long remaining = claims.getExpiration().getTime() - System.currentTimeMillis();
-            if (remaining > 0) {
-                redisTemplate.opsForValue().set(
-                        BLACKLIST_PREFIX + accessToken,
-                        "logout",
-                        Duration.ofMillis(remaining)
-                );
+            Instant expiresAt = claims.getExpiration().toInstant();
+            if (expiresAt.isAfter(Instant.now(clock))) {
+                blacklistedTokenRepository.save(new BlacklistedToken(accessToken, expiresAt));
             }
         } catch (AttendanceException e) {
             // 이미 만료된 토큰은 블랙리스트 불필요

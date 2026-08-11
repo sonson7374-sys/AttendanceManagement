@@ -126,9 +126,10 @@ class EmployeeRepository {
     }
   }
 
+  // 조회 대상 회사는 서버가 로그인한 사용자의 소속 회사로 강제한다(클라이언트가 companyId를 지정할 수 없음).
   Future<List<Organization>> getOrganizations() async {
     try {
-      final response = await _dio.get(ApiConstants.organizations, queryParameters: {'companyId': 1});
+      final response = await _dio.get(ApiConstants.organizations);
       final content = response.data['data'] as List<dynamic>;
       return content.map((e) => Organization.fromJson(e as Map<String, dynamic>)).toList();
     } on DioException catch (e) {

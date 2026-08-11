@@ -25,6 +25,7 @@ public enum ErrorCode {
     // Company / Organization
     COMPANY_NOT_FOUND(HttpStatus.NOT_FOUND, "ORG_001", "회사를 찾을 수 없습니다."),
     ORGANIZATION_NOT_FOUND(HttpStatus.NOT_FOUND, "ORG_002", "부서를 찾을 수 없습니다."),
+    COMPANY_NAME_ALREADY_EXISTS(HttpStatus.CONFLICT, "ORG_003", "이미 사용 중인 회사명입니다."),
 
     // Workplace
     WORKPLACE_NOT_FOUND(HttpStatus.NOT_FOUND, "WP_001", "근무지를 찾을 수 없습니다."),

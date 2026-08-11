@@ -50,8 +50,10 @@ public class UserController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('HR_ADMIN', 'SYSTEM_ADMIN')")
-    public ResponseEntity<ApiResponse<UserResponse>> createUser(@Valid @RequestBody CreateUserRequest request) {
-        return ResponseEntity.status(201).body(ApiResponse.created(userService.createUser(request)));
+    public ResponseEntity<ApiResponse<UserResponse>> createUser(
+            @Valid @RequestBody CreateUserRequest request, @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.status(201).body(ApiResponse.created(
+                userService.createUser(request, principal.getCompanyId())));
     }
 
     @GetMapping("/bulk/template")
@@ -69,24 +71,25 @@ public class UserController {
     @PreAuthorize("hasAnyRole('HR_ADMIN', 'SYSTEM_ADMIN')")
     public ResponseEntity<ApiResponse<BulkUserImportResponse>> bulkImportUsers(
             @AuthenticationPrincipal UserPrincipal principal,
-            @RequestParam Long companyId,
             @RequestPart("file") MultipartFile file) {
         BulkUserImportResponse response = userBulkImportService.importFromExcel(
-                principal.getId(), principal.getUsername(), companyId, file);
+                principal.getId(), principal.getUsername(), principal.getCompanyId(), file);
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
     @PostMapping("/{userId}/lock")
     @PreAuthorize("hasRole('SYSTEM_ADMIN')")
-    public ResponseEntity<ApiResponse<Void>> lockUser(@PathVariable Long userId) {
-        userService.lockUser(userId);
+    public ResponseEntity<ApiResponse<Void>> lockUser(
+            @PathVariable Long userId, @AuthenticationPrincipal UserPrincipal principal) {
+        userService.lockUser(userId, principal.getId());
         return ResponseEntity.ok(ApiResponse.ok());
     }
 
     @PostMapping("/{userId}/unlock")
     @PreAuthorize("hasRole('SYSTEM_ADMIN')")
-    public ResponseEntity<ApiResponse<Void>> unlockUser(@PathVariable Long userId) {
-        userService.unlockUser(userId);
+    public ResponseEntity<ApiResponse<Void>> unlockUser(
+            @PathVariable Long userId, @AuthenticationPrincipal UserPrincipal principal) {
+        userService.unlockUser(userId, principal.getId());
         return ResponseEntity.ok(ApiResponse.ok());
     }
 
@@ -131,15 +134,17 @@ public class UserController {
 
     @GetMapping("/{userId}/devices")
     @PreAuthorize("hasAnyRole('HR_ADMIN', 'SYSTEM_ADMIN')")
-    public ResponseEntity<ApiResponse<List<UserDeviceResponse>>> listDevices(@PathVariable Long userId) {
-        return ResponseEntity.ok(ApiResponse.ok(userService.listDevices(userId)));
+    public ResponseEntity<ApiResponse<List<UserDeviceResponse>>> listDevices(
+            @PathVariable Long userId, @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.ok(userService.listDevices(userId, principal.getId())));
     }
 
     @PatchMapping("/{userId}/role")
     @PreAuthorize("hasRole('SYSTEM_ADMIN')")
     public ResponseEntity<ApiResponse<UserResponse>> changeRole(
-            @PathVariable Long userId, @Valid @RequestBody ChangeRoleRequest request) {
-        return ResponseEntity.ok(ApiResponse.ok(userService.changeRole(userId, request.getRole())));
+            @PathVariable Long userId, @Valid @RequestBody ChangeRoleRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.ok(userService.changeRole(userId, request.getRole(), principal.getId())));
     }
 
     /**

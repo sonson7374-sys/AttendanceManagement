@@ -1,5 +1,6 @@
 package com.attendance.auth.jwt;
 
+import com.attendance.auth.repository.BlacklistedTokenRepository;
 import com.attendance.auth.service.CustomUserDetailsService;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
@@ -22,6 +23,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final CustomUserDetailsService userDetailsService;
+    private final BlacklistedTokenRepository blacklistedTokenRepository;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request,
@@ -31,7 +33,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (token != null) {
             try {
                 Claims claims = jwtTokenProvider.parseToken(token);
-                if ("access".equals(claims.get("type", String.class))) {
+                // 로그아웃된 액세스 토큰은 자연 만료 전이라도 더 이상 유효하지 않아야 한다.
+                if ("access".equals(claims.get("type", String.class)) && !blacklistedTokenRepository.existsById(token)) {
                     String userId = claims.getSubject();
                     UserDetails userDetails = userDetailsService.loadUserById(Long.parseLong(userId));
                     UsernamePasswordAuthenticationToken authentication =

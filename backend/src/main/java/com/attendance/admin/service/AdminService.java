@@ -180,12 +180,17 @@ public class AdminService {
     }
 
     @Transactional(readOnly = true)
-    public DashboardStatsResponse getDashboardStats() {
+    public DashboardStatsResponse getDashboardStats(Long companyId) {
         LocalDate today = Instant.now(clock).atZone(AppConfig.SEOUL).toLocalDate();
 
-        long totalEmployees = userRepository.countByStatus(UserStatus.ACTIVE);
+        Set<Long> companyUserIds = userRepository.findByCompanyId(companyId).stream()
+                .map(User::getId).collect(Collectors.toSet());
+        long totalEmployees = userRepository.findByCompanyId(companyId).stream()
+                .filter(u -> u.getStatus() == UserStatus.ACTIVE).count();
 
-        List<AttendanceRecord> todayRecords = recordRepository.findByWorkDate(today);
+        List<AttendanceRecord> todayRecords = recordRepository.findByWorkDate(today).stream()
+                .filter(r -> companyUserIds.contains(r.getUserId()))
+                .toList();
         long presentToday = todayRecords.stream()
                 .filter(r -> r.getStatus() == AttendanceStatus.WORKING
                           || r.getStatus() == AttendanceStatus.BREAK
@@ -216,7 +221,7 @@ public class AdminService {
                 .filter(r -> r.getStatus() == AttendanceStatus.FINISHED)
                 .count();
         long pendingApprovals = changeRequestRepository
-                .findByStatusOrderByCreatedAtAsc(ChangeRequestStatus.PENDING).size();
+                .findByStatusAndRequesterIdInOrderByCreatedAtAsc(ChangeRequestStatus.PENDING, companyUserIds).size();
 
         return DashboardStatsResponse.builder()
                 .totalEmployees(totalEmployees)
@@ -227,17 +232,17 @@ public class AdminService {
                 .outsideWorkToday(outsideWorkToday)
                 .checkedOutToday(checkedOutToday)
                 .pendingApprovals(pendingApprovals)
-                .departmentAttendanceRates(getDepartmentAttendanceRates(today, todayRecords))
+                .departmentAttendanceRates(getDepartmentAttendanceRates(companyId, todayRecords))
                 .hourlyAttendance(getHourlyAttendance(todayRecords))
                 .build();
     }
 
-    private List<DepartmentAttendanceRate> getDepartmentAttendanceRates(LocalDate today, List<AttendanceRecord> todayRecords) {
-        List<Organization> organizations = organizationRepository.findByCompanyIdAndActive(1L, true);
-        // 상위부서명 표시를 위해, 비활성 처리된 상위부서도 이름을 찾을 수 있도록 전체 조직을 기준으로 맵을 만든다.
-        Map<Long, Organization> orgById = organizationRepository.findAll().stream()
+    private List<DepartmentAttendanceRate> getDepartmentAttendanceRates(Long companyId, List<AttendanceRecord> todayRecords) {
+        List<Organization> organizations = organizationRepository.findByCompanyIdAndActive(companyId, true);
+        // 상위부서명 표시를 위해, 비활성 처리된 상위부서도 이름을 찾을 수 있도록 회사 전체 조직을 기준으로 맵을 만든다.
+        Map<Long, Organization> orgById = organizationRepository.findByCompanyId(companyId).stream()
                 .collect(Collectors.toMap(Organization::getId, o -> o, (a, b) -> a));
-        List<User> activeUsers = userRepository.findAll().stream()
+        List<User> activeUsers = userRepository.findByCompanyId(companyId).stream()
                 .filter(u -> u.getStatus() == UserStatus.ACTIVE)
                 .toList();
         java.util.Set<Long> presentUserIds = todayRecords.stream()

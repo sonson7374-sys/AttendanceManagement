@@ -135,7 +135,8 @@ class Employee {
   }
 }
 
-/// 관리자웹 EmployeesPage의 등록(Create) 폼과 동일. companyId는 관리자웹처럼 1로 고정한다.
+/// 관리자웹 EmployeesPage의 등록(Create) 폼과 동일. 회사 소속은 클라이언트 값을 신뢰하지 않고
+/// 서버가 로그인한 관리자의 소속 회사로 강제한다.
 class EmployeeCreatePayload {
   EmployeeCreatePayload({
     required this.email,
@@ -162,7 +163,6 @@ class EmployeeCreatePayload {
         'employeeNumber': employeeNumber,
         'role': role.toApi(),
         'level': level,
-        'companyId': 1,
         if (organizationId != null) 'organizationId': organizationId,
       };
 }

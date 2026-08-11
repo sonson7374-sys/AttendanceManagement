@@ -1,6 +1,10 @@
 spring:
   application:
     name: attendance-backend
+  servlet:
+    multipart:
+      max-file-size: 2MB
+      max-request-size: 2MB
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${POSTGRES_DB:attendance}?sslmode=${DB_SSL_MODE:disable}
     username: ${POSTGRES_USER:attendance}
@@ -23,11 +27,6 @@ spring:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: false
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      password: ${REDIS_PASSWORD:}
 
 server:
   port: 8080
@@ -60,6 +59,10 @@ security:
 privacy:
   location-retention-days: ${PRIVACY_LOCATION_RETENTION_DAYS:90}
   audit-log-retention-days: ${PRIVACY_AUDIT_LOG_RETENTION_DAYS:365}
+
+app:
+  logo:
+    storage-dir: ${LOGO_STORAGE_DIR:./data/logo}
 
 management:
   endpoints:

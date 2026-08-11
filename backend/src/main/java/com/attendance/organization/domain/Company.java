@@ -52,8 +52,9 @@ public class Company {
         this.active = true;
     }
 
-    public void update(String name, String address, String phone) {
+    public void update(String name, String businessNumber, String address, String phone) {
         this.name = name;
+        this.businessNumber = businessNumber;
         this.address = address;
         this.phone = phone;
     }

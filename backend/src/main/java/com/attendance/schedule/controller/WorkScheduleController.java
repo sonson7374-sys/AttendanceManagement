@@ -10,7 +10,9 @@ import com.attendance.schedule.dto.WorkScheduleRequest;
 import com.attendance.schedule.dto.WorkScheduleResponse;
 import com.attendance.schedule.repository.WorkScheduleRepository;
 import com.attendance.schedule.service.WorkScheduleService;
+import com.attendance.user.domain.User;
 import com.attendance.user.domain.UserPrincipal;
+import com.attendance.user.repository.UserRepository;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -29,16 +31,16 @@ import java.util.Map;
 @PreAuthorize("hasAnyRole('MANAGER','HR_ADMIN','SYSTEM_ADMIN')")
 public class WorkScheduleController {
 
-    private static final long DEFAULT_COMPANY_ID = 1L;
-
     private final WorkScheduleRepository workScheduleRepository;
     private final WorkScheduleService workScheduleService;
     private final AuditLogService auditLogService;
+    private final UserRepository userRepository;
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<WorkScheduleResponse>>> list() {
+    public ResponseEntity<ApiResponse<List<WorkScheduleResponse>>> list(
+            @AuthenticationPrincipal UserPrincipal principal) {
         List<WorkScheduleResponse> list = workScheduleRepository
-                .findAll().stream()
+                .findByCompanyId(principal.getCompanyId()).stream()
                 .filter(WorkSchedule::isActive)
                 .map(WorkScheduleResponse::from)
                 .toList();
@@ -46,9 +48,9 @@ public class WorkScheduleController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<WorkScheduleResponse>> get(@PathVariable Long id) {
-        WorkSchedule ws = workScheduleRepository.findById(id)
-                .orElseThrow(() -> new AttendanceException(ErrorCode.RESOURCE_NOT_FOUND));
+    public ResponseEntity<ApiResponse<WorkScheduleResponse>> get(
+            @PathVariable Long id, @AuthenticationPrincipal UserPrincipal principal) {
+        WorkSchedule ws = findOwnedOrThrow(id, principal);
         return ResponseEntity.ok(ApiResponse.ok(WorkScheduleResponse.from(ws)));
     }
 
@@ -60,7 +62,7 @@ public class WorkScheduleController {
             throw new AttendanceException(ErrorCode.INVALID_INPUT, "근무 종료 시각은 시작 시각보다 늦어야 합니다.");
         }
         WorkSchedule ws = WorkSchedule.builder()
-                .companyId(DEFAULT_COMPANY_ID)
+                .companyId(principal.getCompanyId())
                 .name(req.name())
                 .workStartTime(req.workStartTime())
                 .workEndTime(req.workEndTime())
@@ -86,8 +88,7 @@ public class WorkScheduleController {
     public ResponseEntity<ApiResponse<WorkScheduleResponse>> update(
             @PathVariable Long id, @Valid @RequestBody WorkScheduleRequest req,
             @AuthenticationPrincipal UserPrincipal principal) {
-        WorkSchedule ws = workScheduleRepository.findById(id)
-                .orElseThrow(() -> new AttendanceException(ErrorCode.RESOURCE_NOT_FOUND));
+        WorkSchedule ws = findOwnedOrThrow(id, principal);
         ws.update(req.name(), req.workStartTime(), req.workEndTime(),
                 req.requiredWorkMinutes(), req.overtimeThresholdMin(),
                 req.scheduleType(), req.lateThresholdMinutes(), req.earlyLeaveThresholdMinutes(),
@@ -102,8 +103,7 @@ public class WorkScheduleController {
     @DeleteMapping("/{id}")
     public ResponseEntity<ApiResponse<Void>> deactivate(
             @PathVariable Long id, @AuthenticationPrincipal UserPrincipal principal) {
-        WorkSchedule ws = workScheduleRepository.findById(id)
-                .orElseThrow(() -> new AttendanceException(ErrorCode.RESOURCE_NOT_FOUND));
+        WorkSchedule ws = findOwnedOrThrow(id, principal);
         ws.deactivate();
         workScheduleRepository.save(ws);
         auditLogService.record(principal.getId(), principal.getUsername(), "WORK_SCHEDULE_DEACTIVATED",
@@ -112,7 +112,9 @@ public class WorkScheduleController {
     }
 
     @GetMapping("/users/{userId}/current")
-    public ResponseEntity<ApiResponse<WorkScheduleResponse>> getCurrentForUser(@PathVariable Long userId) {
+    public ResponseEntity<ApiResponse<WorkScheduleResponse>> getCurrentForUser(
+            @PathVariable Long userId, @AuthenticationPrincipal UserPrincipal principal) {
+        requireSameCompanyUser(userId, principal);
         WorkSchedule ws = workScheduleService.resolveSchedule(userId, LocalDate.now());
         return ResponseEntity.ok(ApiResponse.ok(WorkScheduleResponse.from(ws)));
     }
@@ -128,9 +130,10 @@ public class WorkScheduleController {
     /** 근무제 변경요청 화면에서 선택 가능한 활성 근무제 목록. 전 직원이 조회할 수 있어야 한다(등록/수정 권한과 무관). */
     @GetMapping("/options")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<ApiResponse<List<WorkScheduleResponse>>> listOptions() {
+    public ResponseEntity<ApiResponse<List<WorkScheduleResponse>>> listOptions(
+            @AuthenticationPrincipal UserPrincipal principal) {
         List<WorkScheduleResponse> list = workScheduleRepository
-                .findAll().stream()
+                .findByCompanyId(principal.getCompanyId()).stream()
                 .filter(WorkSchedule::isActive)
                 .map(WorkScheduleResponse::from)
                 .toList();
@@ -144,5 +147,23 @@ public class WorkScheduleController {
             @AuthenticationPrincipal UserPrincipal principal) {
         workScheduleService.assignWorkSchedule(userId, request.workScheduleId(), principal);
         return ResponseEntity.ok(ApiResponse.ok());
+    }
+
+    // 다른 회사의 근무제 id는 존재 여부 자체를 노출하지 않도록 NOT_FOUND로 처리한다(회사 경계는 서버가 강제).
+    private WorkSchedule findOwnedOrThrow(Long id, UserPrincipal principal) {
+        WorkSchedule ws = workScheduleRepository.findById(id)
+                .orElseThrow(() -> new AttendanceException(ErrorCode.RESOURCE_NOT_FOUND));
+        if (!ws.getCompanyId().equals(principal.getCompanyId())) {
+            throw new AttendanceException(ErrorCode.RESOURCE_NOT_FOUND);
+        }
+        return ws;
+    }
+
+    private void requireSameCompanyUser(Long userId, UserPrincipal principal) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AttendanceException(ErrorCode.USER_NOT_FOUND));
+        if (!user.getCompanyId().equals(principal.getCompanyId())) {
+            throw new AttendanceException(ErrorCode.USER_NOT_FOUND);
+        }
     }
 }

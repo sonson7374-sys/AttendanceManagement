@@ -27,15 +27,16 @@ public class WorkplaceController {
     @GetMapping
     @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SYSTEM_ADMIN')")
     public ResponseEntity<ApiResponse<List<WorkplaceResponse>>> listWorkplaces(
-            @RequestParam Long companyId,
-            @RequestParam(required = false, defaultValue = "false") boolean includeInactive) {
-        return ResponseEntity.ok(ApiResponse.ok(workplaceService.listByCompany(companyId, includeInactive)));
+            @RequestParam(required = false, defaultValue = "false") boolean includeInactive,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.ok(workplaceService.listByCompany(principal.getCompanyId(), includeInactive)));
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SYSTEM_ADMIN')")
-    public ResponseEntity<ApiResponse<WorkplaceResponse>> getWorkplace(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.ok(workplaceService.getWorkplace(id)));
+    public ResponseEntity<ApiResponse<WorkplaceResponse>> getWorkplace(
+            @PathVariable Long id, @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.ok(workplaceService.getWorkplace(id, principal.getCompanyId())));
     }
 
     @PostMapping
@@ -104,8 +105,8 @@ public class WorkplaceController {
     @GetMapping("/{workplaceId}/users")
     @PreAuthorize("hasAnyRole('HR_ADMIN', 'SYSTEM_ADMIN')")
     public ResponseEntity<ApiResponse<List<UserResponse>>> getAssignedUsers(
-            @PathVariable Long workplaceId) {
-        return ResponseEntity.ok(ApiResponse.ok(workplaceService.getAssignedUsers(workplaceId)));
+            @PathVariable Long workplaceId, @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.ok(workplaceService.getAssignedUsers(workplaceId, principal.getCompanyId())));
     }
 
     @DeleteMapping("/{workplaceId}/users/{userId}")
@@ -129,7 +130,7 @@ public class WorkplaceController {
     @GetMapping("/users/{userId}")
     @PreAuthorize("hasAnyRole('HR_ADMIN', 'SYSTEM_ADMIN')")
     public ResponseEntity<ApiResponse<List<WorkplaceResponse>>> getWorkplacesForUser(
-            @PathVariable Long userId) {
-        return ResponseEntity.ok(ApiResponse.ok(workplaceService.getWorkplacesForUser(userId)));
+            @PathVariable Long userId, @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.ok(workplaceService.getWorkplacesForUser(userId, principal.getCompanyId())));
     }
 }

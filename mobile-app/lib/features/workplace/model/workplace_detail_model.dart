@@ -84,7 +84,6 @@ class WorkplaceDetail {
 
 class WorkplaceDetailPayload {
   const WorkplaceDetailPayload({
-    required this.companyId,
     required this.name,
     required this.address,
     this.detailAddress,
@@ -99,7 +98,6 @@ class WorkplaceDetailPayload {
     this.validTo,
   });
 
-  final int companyId;
   final String name;
   final String address;
   final String? detailAddress;
@@ -113,8 +111,8 @@ class WorkplaceDetailPayload {
   final String? validFrom;
   final String? validTo;
 
+  // 회사 소속은 클라이언트 값을 신뢰하지 않고 서버가 로그인한 관리자의 소속 회사로 강제한다.
   Map<String, dynamic> toJson() => {
-        'companyId': companyId,
         'name': name,
         'address': address,
         if (detailAddress != null && detailAddress!.isNotEmpty) 'detailAddress': detailAddress,

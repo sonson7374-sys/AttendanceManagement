@@ -10,8 +10,6 @@ import { useAuthStore } from '@/store/authStore'
 import { usePermissions } from '@/hooks/usePermissions'
 import toast from 'react-hot-toast'
 
-const COMPANY_ID = 1
-
 const WORKPLACE_TYPE_OPTIONS: { value: WorkplaceType; label: string }[] = [
   { value: 'OFFICE', label: '일반 사무실' },
   { value: 'LARGE_SITE', label: '대형 사업장' },
@@ -53,7 +51,7 @@ function CreateWorkplaceModal({ onClose }: { onClose: () => void }) {
 
   const mutation = useMutation({
     mutationFn: () => createWorkplace({
-      companyId: COMPANY_ID, name: form.name, address: form.address, detailAddress: form.detailAddress || undefined,
+      name: form.name, address: form.address, detailAddress: form.detailAddress || undefined,
       type: form.type,
       latitude: parseFloat(form.latitude), longitude: parseFloat(form.longitude),
       radiusMeters: parseInt(form.radiusMeters),
@@ -453,7 +451,7 @@ function EditWorkplaceModal({ workplace, onClose }: { workplace: Workplace; onCl
 
   const mutation = useMutation({
     mutationFn: () => updateWorkplace(workplace.id, {
-      companyId: workplace.companyId, name: form.name, address: form.address, detailAddress: form.detailAddress || undefined,
+      name: form.name, address: form.address, detailAddress: form.detailAddress || undefined,
       type: form.type, latitude: lat, longitude: lng, radiusMeters: radius,
       maxAccuracyMeters: form.maxAccuracyMeters ? parseInt(form.maxAccuracyMeters) : undefined,
       checkInAllowed: form.checkInAllowed, checkOutAllowed: form.checkOutAllowed,
@@ -670,7 +668,7 @@ export default function WorkplacesPage() {
     queryKey: isPlainEmployee ? ['workplaces', 'assigned'] : ['workplaces', showInactive],
     queryFn: () => isPlainEmployee
       ? getMyAssignedWorkplaces().then(r => r.data.data)
-      : getWorkplaces(COMPANY_ID, showInactive).then(r => r.data.data),
+      : getWorkplaces(showInactive).then(r => r.data.data),
   })
 
   const { data: myChangeRequests = [] } = useQuery({

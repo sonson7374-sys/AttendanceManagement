@@ -17,7 +17,6 @@ import com.attendance.workplace.repository.WorkplaceRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,8 +29,6 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AttendanceService {
 
-    private static final String IDEMPOTENCY_KEY_PREFIX = "idempotency:";
-
     private final AttendanceRecordRepository recordRepository;
     private final AttendanceEventRepository eventRepository;
     private final BreakRecordRepository breakRecordRepository;
@@ -41,21 +38,21 @@ public class AttendanceService {
     private final AttendanceProperties attendanceProperties;
     private final WorkScheduleService workScheduleService;
     private final AttendanceScheduleEvaluator scheduleEvaluator;
-    private final RedisTemplate<String, String> redisTemplate;
+    private final IdempotencyKeyRepository idempotencyKeyRepository;
     private final Clock clock;
 
     /**
      * 클라이언트가 Idempotency-Key를 보낸 경우, 동일 키로 이미 처리 중이거나 처리된 요청이면 거부한다.
-     * 네트워크 재시도로 인한 출근/퇴근 중복 제출을 방지하기 위함이다.
+     * 네트워크 재시도로 인한 출근/퇴근 중복 제출을 방지하기 위함이다. idempotency_keys.PK(unique) 제약을
+     * 이용해 동시 요청에서도 원자적으로 판정한다(Redis SETNX와 동일한 역할).
      */
     private void checkIdempotency(String idempotencyKey) {
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
             return;
         }
-        Boolean acquired = redisTemplate.opsForValue().setIfAbsent(
-                IDEMPOTENCY_KEY_PREFIX + idempotencyKey, "1",
-                Duration.ofSeconds(attendanceProperties.getDuplicateRequestWindowSeconds()));
-        if (!Boolean.TRUE.equals(acquired)) {
+        Instant expiresAt = Instant.now(clock).plusSeconds(attendanceProperties.getDuplicateRequestWindowSeconds());
+        int inserted = idempotencyKeyRepository.tryInsert(idempotencyKey, expiresAt);
+        if (inserted == 0) {
             throw new AttendanceException(ErrorCode.DUPLICATE_REQUEST);
         }
     }

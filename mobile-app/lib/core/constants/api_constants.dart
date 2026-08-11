@@ -73,6 +73,9 @@ class ApiConstants {
 
   // 조직 (직원 등록/수정 폼의 소속 조직 선택용, 관리자웹과 동일한 API)
   static const String organizations = '/organizations';
+
+  // 시스템 공용 로고 (인증 없이 조회 가능, 관리자웹과 동일한 API)
+  static const String logo = '/logo';
 }
 
 class StorageKeys {

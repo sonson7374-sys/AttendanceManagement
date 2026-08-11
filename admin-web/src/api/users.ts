@@ -8,7 +8,6 @@ export interface CreateUserPayload {
   employeeNumber: string
   role: UserRole
   level: string
-  companyId: number
   organizationId?: number
 }
 
@@ -85,11 +84,10 @@ export interface BulkUserImportResponse {
   results: BulkUserRowResult[]
 }
 
-export const bulkCreateUsers = (companyId: number, file: File) => {
+export const bulkCreateUsers = (file: File) => {
   const formData = new FormData()
   formData.append('file', file)
   return client.post<ApiResponse<BulkUserImportResponse>>('/users/bulk', formData, {
-    params: { companyId },
     headers: { 'Content-Type': 'multipart/form-data' },
   })
 }

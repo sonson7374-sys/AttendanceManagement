@@ -3,6 +3,7 @@ package com.attendance.workplace.service;
 import com.attendance.audit.service.AuditLogService;
 import com.attendance.common.exception.AttendanceException;
 import com.attendance.common.exception.ErrorCode;
+import com.attendance.user.domain.User;
 import com.attendance.user.domain.UserPrincipal;
 import com.attendance.user.dto.UserResponse;
 import com.attendance.user.repository.UserRepository;
@@ -39,14 +40,14 @@ public class WorkplaceService {
     }
 
     @Transactional(readOnly = true)
-    public WorkplaceResponse getWorkplace(Long id) {
-        return WorkplaceResponse.from(findById(id));
+    public WorkplaceResponse getWorkplace(Long id, Long companyId) {
+        return WorkplaceResponse.from(findOwnedById(id, companyId));
     }
 
     @Transactional
     public WorkplaceResponse createWorkplace(WorkplaceRequest request, UserPrincipal actor) {
         Workplace workplace = Workplace.builder()
-                .companyId(request.getCompanyId())
+                .companyId(actor.getCompanyId())
                 .name(request.getName())
                 .address(request.getAddress())
                 .detailAddress(request.getDetailAddress())
@@ -69,7 +70,7 @@ public class WorkplaceService {
 
     @Transactional
     public WorkplaceResponse updateWorkplace(Long id, WorkplaceRequest request, UserPrincipal actor) {
-        Workplace workplace = findById(id);
+        Workplace workplace = findOwnedById(id, actor.getCompanyId());
         Map<String, Object> before = Map.of(
                 "latitude", String.valueOf(workplace.getLatitude()),
                 "longitude", String.valueOf(workplace.getLongitude()),
@@ -90,14 +91,14 @@ public class WorkplaceService {
 
     @Transactional
     public void deactivateWorkplace(Long id, UserPrincipal actor) {
-        findById(id).deactivate();
+        findOwnedById(id, actor.getCompanyId()).deactivate();
         auditLogService.record(actor.getId(), actor.getUsername(), "WORKPLACE_DEACTIVATED",
                 "WORKPLACE", id, Map.of());
     }
 
     @Transactional
     public void activateWorkplace(Long id, UserPrincipal actor) {
-        findById(id).activate();
+        findOwnedById(id, actor.getCompanyId()).activate();
         auditLogService.record(actor.getId(), actor.getUsername(), "WORKPLACE_ACTIVATED",
                 "WORKPLACE", id, Map.of());
     }
@@ -108,7 +109,7 @@ public class WorkplaceService {
      */
     @Transactional
     public void permanentlyDeleteWorkplace(Long id, UserPrincipal actor) {
-        Workplace workplace = findById(id);
+        Workplace workplace = findOwnedById(id, actor.getCompanyId());
         if (workplace.isActive()) {
             throw new AttendanceException(ErrorCode.WORKPLACE_NOT_DEACTIVATED);
         }
@@ -144,6 +145,7 @@ public class WorkplaceService {
     @Transactional
     public void assignUserToWorkplace(Long userId, Long workplaceId, LocalDate validFrom,
                                        LocalDate validTo, UserPrincipal actor) {
+        findOwnedById(workplaceId, actor.getCompanyId());
         assignUserToWorkplace(userId, workplaceId, validFrom, validTo, actor.getId());
         auditLogService.record(actor.getId(), actor.getUsername(), "WORKPLACE_USER_ASSIGNED",
                 "WORKPLACE", workplaceId, Map.of("userId", userId));
@@ -152,6 +154,7 @@ public class WorkplaceService {
     @Transactional
     public void assignUsersToWorkplace(Long workplaceId, List<Long> userIds, LocalDate validFrom,
                                         LocalDate validTo, UserPrincipal actor) {
+        findOwnedById(workplaceId, actor.getCompanyId());
         for (Long userId : userIds) {
             assignUserToWorkplace(userId, workplaceId, validFrom, validTo, actor.getId());
         }
@@ -166,7 +169,8 @@ public class WorkplaceService {
     }
 
     @Transactional(readOnly = true)
-    public List<UserResponse> getAssignedUsers(Long workplaceId) {
+    public List<UserResponse> getAssignedUsers(Long workplaceId, Long companyId) {
+        findOwnedById(workplaceId, companyId);
         return userWorkplaceRepository.findByWorkplaceId(workplaceId).stream()
                 .map(uw -> userRepository.findById(uw.getUserId()).orElse(null))
                 .filter(u -> u != null)
@@ -175,8 +179,10 @@ public class WorkplaceService {
     }
 
     @Transactional(readOnly = true)
-    public List<WorkplaceResponse> getWorkplacesForUser(Long userId) {
-        if (!userRepository.existsById(userId)) {
+    public List<WorkplaceResponse> getWorkplacesForUser(Long userId, Long companyId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AttendanceException(ErrorCode.USER_NOT_FOUND));
+        if (!user.getCompanyId().equals(companyId)) {
             throw new AttendanceException(ErrorCode.USER_NOT_FOUND);
         }
         return userWorkplaceRepository.findByUserId(userId).stream()
@@ -188,6 +194,7 @@ public class WorkplaceService {
 
     @Transactional
     public void removeUserFromWorkplace(Long workplaceId, Long userId, UserPrincipal actor) {
+        findOwnedById(workplaceId, actor.getCompanyId());
         userWorkplaceRepository.deleteByUserIdAndWorkplaceId(userId, workplaceId);
         auditLogService.record(actor.getId(), actor.getUsername(), "WORKPLACE_USER_REMOVED",
                 "WORKPLACE", workplaceId, Map.of("userId", userId));
@@ -209,5 +216,14 @@ public class WorkplaceService {
     private Workplace findById(Long id) {
         return workplaceRepository.findById(id)
                 .orElseThrow(() -> new AttendanceException(ErrorCode.WORKPLACE_NOT_FOUND));
+    }
+
+    // 다른 회사의 근무지 id는 존재 여부 자체를 노출하지 않도록 NOT_FOUND로 처리한다(회사 경계는 서버가 강제).
+    private Workplace findOwnedById(Long id, Long companyId) {
+        Workplace workplace = findById(id);
+        if (!workplace.getCompanyId().equals(companyId)) {
+            throw new AttendanceException(ErrorCode.WORKPLACE_NOT_FOUND);
+        }
+        return workplace;
     }
 }

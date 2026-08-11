@@ -19,10 +19,13 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 역할·조직 계층에 따라 "이 사용자가 조회 가능한 대상 사용자" 범위를 계산한다.
- * - SYSTEM_ADMIN / HR_ADMIN: 전체 조회 가능 (null 반환)
+ * 회사 경계는 항상 서버가 강제한다 — 아래 "전체 조회 가능"은 전체 시스템이 아니라
+ * "액터가 속한 회사 안에서 전체"를 의미하므로, null 대신 액터 회사로 스코핑된 id 집합을 반환한다.
+ * - SYSTEM_ADMIN / HR_ADMIN: 본인 회사 전체 조회 가능
  * - MANAGER: 본인이 배정된 조직과 그 하위 조직 전체에 속한 사용자 + 본인
  *   (팀장이면 자기 팀, 실장이면 실 산하 전체, 본부장이면 본부 산하 전체가 같은 방식으로 계산된다 —
  *   관리자가 어느 조직 "레벨"에 배정되어 있는지에 따라 범위가 자연스럽게 달라진다)
@@ -48,13 +51,13 @@ public class OrganizationScopeService {
                 .orElseThrow(() -> new IllegalStateException("사용자를 찾을 수 없습니다: " + actingUserId));
 
         if (actor.getRole() == UserRole.SYSTEM_ADMIN || actor.getRole() == UserRole.HR_ADMIN) {
-            return null;
+            return companyUserIds(actor.getCompanyId());
         }
         if (actor.getRole() != UserRole.MANAGER || actor.getOrganizationId() == null) {
             return Set.of(actingUserId);
         }
 
-        Set<Long> orgIds = collectDescendantOrgIds(actor.getOrganizationId());
+        Set<Long> orgIds = collectDescendantOrgIds(actor.getOrganizationId(), actor.getCompanyId());
         Set<Long> userIds = new HashSet<>(userRepository.findByOrganizationIdIn(orgIds).stream()
                 .map(User::getId)
                 .toList());
@@ -64,7 +67,7 @@ public class OrganizationScopeService {
 
     /**
      * role이 아니라 권한레벨(level, 그룹코드 LEVEL_ROLL)을 기준으로 조회 범위를 계산한다.
-     * - SYSADMIN/HRADMIN/PRESIDENT: 전체 조회 가능 (null 반환)
+     * - SYSADMIN/HRADMIN/PRESIDENT: 본인 회사 전체 조회 가능
      * - 파트장 이상 레벨(팀장/실장/본부장/부문장/파트장 등)이며 조직이 배정된 경우: 본인 조직 산하 전체 + 본인
      * - 그 외(직원 레벨이거나 조직 미배정): 본인만
      */
@@ -74,13 +77,13 @@ public class OrganizationScopeService {
                 .orElseThrow(() -> new IllegalStateException("사용자를 찾을 수 없습니다: " + actingUserId));
 
         if (UNRESTRICTED_LEVELS.contains(actor.getLevel())) {
-            return null;
+            return companyUserIds(actor.getCompanyId());
         }
         if (!isPartLeadOrAbove(actor.getLevel()) || actor.getOrganizationId() == null) {
             return Set.of(actingUserId);
         }
 
-        Set<Long> orgIds = collectDescendantOrgIds(actor.getOrganizationId());
+        Set<Long> orgIds = collectDescendantOrgIds(actor.getOrganizationId(), actor.getCompanyId());
         Set<Long> userIds = new HashSet<>(userRepository.findByOrganizationIdIn(orgIds).stream()
                 .map(User::getId)
                 .toList());
@@ -91,7 +94,7 @@ public class OrganizationScopeService {
     /**
      * resolveVisibleUserIdsByLevel과 같은 기준(권한레벨)으로, 조회 범위에 해당하는 "조직 id" 집합을 계산한다
      * (근태조회 일별탭의 부서 검색 드롭다운처럼 조직 자체를 좁혀야 하는 화면에서 사용).
-     * - SYSADMIN/HRADMIN/PRESIDENT: 전체 조회 가능 (null 반환)
+     * - SYSADMIN/HRADMIN/PRESIDENT: 본인 회사 전체 조회 가능
      * - 파트장 이상 레벨이며 조직이 배정된 경우: 본인 조직 + 그 하위 조직 전체
      * - 그 외: 본인 조직만(있으면), 없으면 빈 집합
      */
@@ -101,7 +104,7 @@ public class OrganizationScopeService {
                 .orElseThrow(() -> new IllegalStateException("사용자를 찾을 수 없습니다: " + actingUserId));
 
         if (UNRESTRICTED_LEVELS.contains(actor.getLevel())) {
-            return null;
+            return companyOrganizationIds(actor.getCompanyId());
         }
         if (actor.getOrganizationId() == null) {
             return Set.of();
@@ -109,7 +112,19 @@ public class OrganizationScopeService {
         if (!isPartLeadOrAbove(actor.getLevel())) {
             return Set.of(actor.getOrganizationId());
         }
-        return collectDescendantOrgIds(actor.getOrganizationId());
+        return collectDescendantOrgIds(actor.getOrganizationId(), actor.getCompanyId());
+    }
+
+    private Set<Long> companyUserIds(Long companyId) {
+        return userRepository.findByCompanyId(companyId).stream()
+                .map(User::getId)
+                .collect(Collectors.toSet());
+    }
+
+    private Set<Long> companyOrganizationIds(Long companyId) {
+        return organizationRepository.findByCompanyId(companyId).stream()
+                .map(Organization::getId)
+                .collect(Collectors.toSet());
     }
 
     /**
@@ -134,7 +149,7 @@ public class OrganizationScopeService {
 
     /**
      * "출근부(지정일)" 화면처럼 파트장 이상 권한이 하위 직원의 근태를 직접 보정하는 기능을 위한 범위 계산.
-     * - SYSTEM_ADMIN / HR_ADMIN: 전체 (null 반환)
+     * - SYSTEM_ADMIN / HR_ADMIN: 본인 회사 전체
      * - 파트장 이상 레벨(팀장/실장/본부장/부문장/파트장 등)이며 조직이 배정된 경우: 본인 조직 산하 전체 + 본인
      * - 그 외(일반 직원 레벨이거나 조직 미배정): 본인만
      */
@@ -144,13 +159,13 @@ public class OrganizationScopeService {
                 .orElseThrow(() -> new IllegalStateException("사용자를 찾을 수 없습니다: " + actingUserId));
 
         if (actor.getRole() == UserRole.SYSTEM_ADMIN || actor.getRole() == UserRole.HR_ADMIN) {
-            return null;
+            return companyUserIds(actor.getCompanyId());
         }
         if (!isPartLeadOrAbove(actor.getLevel()) || actor.getOrganizationId() == null) {
             return Set.of(actingUserId);
         }
 
-        Set<Long> orgIds = collectDescendantOrgIds(actor.getOrganizationId());
+        Set<Long> orgIds = collectDescendantOrgIds(actor.getOrganizationId(), actor.getCompanyId());
         Set<Long> userIds = new HashSet<>(userRepository.findByOrganizationIdIn(orgIds).stream()
                 .map(User::getId)
                 .toList());
@@ -169,7 +184,7 @@ public class OrganizationScopeService {
                 .orElseThrow(() -> new IllegalStateException("사용자를 찾을 수 없습니다: " + actingUserId));
 
         if (actor.getRole() == UserRole.SYSTEM_ADMIN || actor.getRole() == UserRole.HR_ADMIN) {
-            return null;
+            return companyUserIds(actor.getCompanyId());
         }
         if (!isPartLeadOrAbove(actor.getLevel()) || actor.getOrganizationId() == null) {
             return Set.of(actingUserId);
@@ -181,7 +196,7 @@ public class OrganizationScopeService {
                 childrenByParent.computeIfAbsent(org.getParentId(), k -> new ArrayList<>()).add(org);
             }
         }
-        Set<Long> orgIds = collectDescendantOrgIds(actor.getOrganizationId(), childrenByParent);
+        Set<Long> orgIds = collectDescendantOrgIds(actor.getOrganizationId(), actor.getCompanyId(), childrenByParent);
         Set<Long> userIds = new HashSet<>(userRepository.findByOrganizationIdIn(orgIds).stream()
                 .map(User::getId)
                 .toList());
@@ -189,20 +204,25 @@ public class OrganizationScopeService {
         return userIds;
     }
 
-    private Set<Long> collectDescendantOrgIds(Long rootOrgId) {
+    /**
+     * 조직 트리를 부모->자식으로 내려가며 하위 조직 id를 전부 모은다. 조직의 부모-자식 링크가 실수로
+     * 다른 회사를 가리키는 데이터 오류가 있어도 회사 경계를 넘지 않도록, companyId와 다른 자식은 방어적으로 걸러낸다.
+     */
+    private Set<Long> collectDescendantOrgIds(Long rootOrgId, Long companyId) {
         Set<Long> visited = new HashSet<>();
         Deque<Long> queue = new ArrayDeque<>();
         queue.add(rootOrgId);
         while (!queue.isEmpty()) {
             Long current = queue.poll();
             if (!visited.add(current)) continue;
-            organizationRepository.findByParentId(current)
+            organizationRepository.findByParentId(current).stream()
+                    .filter(child -> companyId.equals(child.getCompanyId()))
                     .forEach(child -> queue.add(child.getId()));
         }
         return visited;
     }
 
-    private Set<Long> collectDescendantOrgIds(Long rootOrgId, Map<Long, List<Organization>> childrenByParent) {
+    private Set<Long> collectDescendantOrgIds(Long rootOrgId, Long companyId, Map<Long, List<Organization>> childrenByParent) {
         Set<Long> visited = new HashSet<>();
         Deque<Long> queue = new ArrayDeque<>();
         queue.add(rootOrgId);
@@ -210,6 +230,7 @@ public class OrganizationScopeService {
             Long current = queue.poll();
             if (!visited.add(current)) continue;
             for (Organization child : childrenByParent.getOrDefault(current, List.of())) {
+                if (!companyId.equals(child.getCompanyId())) continue;
                 queue.add(child.getId());
             }
         }

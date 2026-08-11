@@ -2,7 +2,6 @@ package com.attendance.user.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -30,7 +29,7 @@ public class CreateUserRequest {
     private String employeeNumber;
     private String phone;
 
-    @NotNull(message = "회사를 선택해주세요.")
+    // 회사 소속은 클라이언트 값을 신뢰하지 않고 서버가 로그인한 관리자의 소속 회사로 강제한다(UserService.createUser 참고).
     private Long companyId;
 
     private Long organizationId;

@@ -177,11 +177,16 @@ public class WorkScheduleService {
      */
     @Transactional
     public void assignWorkSchedule(Long userId, Long workScheduleId, LocalDate effectiveFrom, UserPrincipal actor) {
-        if (!userRepository.existsById(userId)) {
+        User targetUser = userRepository.findById(userId)
+                .orElseThrow(() -> new AttendanceException(ErrorCode.USER_NOT_FOUND));
+        if (!targetUser.getCompanyId().equals(actor.getCompanyId())) {
             throw new AttendanceException(ErrorCode.USER_NOT_FOUND);
         }
         WorkSchedule workSchedule = workScheduleRepository.findById(workScheduleId)
                 .orElseThrow(() -> new AttendanceException(ErrorCode.RESOURCE_NOT_FOUND));
+        if (!workSchedule.getCompanyId().equals(actor.getCompanyId())) {
+            throw new AttendanceException(ErrorCode.RESOURCE_NOT_FOUND);
+        }
 
         var current = userWorkScheduleRepository
                 .findFirstByUserIdAndEffectiveUntilIsNullOrderByEffectiveFromDesc(userId);

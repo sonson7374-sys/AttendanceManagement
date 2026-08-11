@@ -1,16 +1,17 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/authStore'
+import { useLogoStore } from '@/store/logoStore'
 import * as authApi from '@/api/auth'
 import { getUser } from '@/api/users'
 import { getOrganizations } from '@/api/organizations'
+import { getMyCompany } from '@/api/companies'
+import { getLogoUrl } from '@/api/logo'
 import { getAttendanceScopeInfo } from '@/api/admin'
 import { usePermissions } from '@/hooks/usePermissions'
 import { useLevelOptions } from '@/hooks/useLevelOptions'
 import toast from 'react-hot-toast'
 import uracleLogo from '@/assets/uracle-logo.png'
-
-const COMPANY_ID = 1
 
 const NAV_ITEMS = [
   { path: '/', label: '대시보드', icon: '📊', menuKey: 'dashboard' },
@@ -29,6 +30,7 @@ const NAV_ITEMS = [
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { userId, name, level, accessToken, logout } = useAuthStore()
+  const logoVersion = useLogoStore((s) => s.version)
   const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -43,11 +45,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     staleTime: 5 * 60 * 1000,
   })
   const { data: organizations = [] } = useQuery({
-    queryKey: ['organizations', COMPANY_ID],
-    queryFn: () => getOrganizations(COMPANY_ID).then(r => r.data.data),
+    queryKey: ['organizations'],
+    queryFn: () => getOrganizations().then(r => r.data.data),
     staleTime: 5 * 60 * 1000,
   })
   const orgName = organizations.find(o => o.id === me?.organizationId)?.name
+
+  const { data: myCompany } = useQuery({
+    queryKey: ['companies', 'me'],
+    queryFn: () => getMyCompany().then(r => r.data.data),
+    staleTime: 5 * 60 * 1000,
+  })
 
   // 직원 관리 메뉴명: 파트장 이상 레벨이면서 관리할 소속 직원이 실제로 있을 때만 "직원 관리",
   // 그 외(직원 레벨이거나 소속 직원이 없는 파트장 이상)는 본인 정보만 다루는 화면이라 "내정보 관리"로 표시한다.
@@ -102,6 +110,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           })}
         </nav>
         <div style={{ padding: '16px 20px', borderTop: '1px solid #334155' }}>
+          {myCompany && (
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4, fontWeight: 600 }}>{myCompany.name}</div>
+          )}
           <div style={{ fontSize: 13, color: '#f1f5f9', marginBottom: 4 }}>{name}</div>
           <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 12 }}>
             {level ? (levelLabel[level] ?? level) : ''}{orgName ? ` · ${orgName}` : ''}
@@ -114,7 +125,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </button>
         </div>
         <div style={{ padding: '14px 20px', display: 'flex', justifyContent: 'center', background: '#fff' }}>
-          <img src={uracleLogo} alt="uracle" style={{ height: 20 }} />
+          <img
+            src={getLogoUrl(logoVersion)}
+            alt="로고"
+            style={{ height: 20 }}
+            onError={e => { e.currentTarget.onerror = null; e.currentTarget.src = uracleLogo }}
+          />
         </div>
       </aside>
 

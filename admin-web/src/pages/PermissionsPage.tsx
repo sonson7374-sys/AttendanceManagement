@@ -5,6 +5,10 @@ import type { CommonCode } from '@/api/commonCodes'
 import { getCommonCodeGroups, createCommonCodeGroup, updateCommonCodeGroup } from '@/api/commonCodeGroups'
 import type { CommonCodeGroup } from '@/api/commonCodeGroups'
 import { getMenuPermissionsByRole, upsertMenuPermission } from '@/api/menuPermissions'
+import { getCompanies, createCompany, updateCompany } from '@/api/companies'
+import type { Company } from '@/api/companies'
+import { getLogoUrl, uploadLogo } from '@/api/logo'
+import { useLogoStore } from '@/store/logoStore'
 import toast from 'react-hot-toast'
 
 // 로그인 권한(실제 API 인가에 쓰이는 EMPLOYEE/MANAGER/HR_ADMIN/SYSTEM_ADMIN)은 이 그룹코드를 기준으로 한다.
@@ -333,8 +337,265 @@ function MenuPermissionTab({ levels }: { levels: CommonCode[] }) {
   )
 }
 
+// 회사 목록은 예외적으로 회사 경계를 넘어 전체가 보인다 — 새 회사를 만들려면 이미 어떤
+// 회사들이 있는지 봐야 하기 때문이다(다른 업무 데이터는 여전히 완전히 격리되어 있음).
+function CompanyManagementTab() {
+  const qc = useQueryClient()
+  const [showCreate, setShowCreate] = useState(false)
+  const [editTarget, setEditTarget] = useState<Company | null>(null)
+
+  const { data: companies = [], isLoading } = useQuery({
+    queryKey: ['companies'],
+    queryFn: () => getCompanies().then(r => r.data.data),
+  })
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1e293b' }}>회사 관리</h2>
+        <button onClick={() => setShowCreate(true)} style={primaryBtnStyle}>+ 회사 추가</button>
+      </div>
+      <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 6px rgba(0,0,0,0.06)', overflow: 'hidden' }}>
+        {isLoading ? (
+          <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>로딩 중...</div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc' }}>
+                {['회사명', '사업자번호', '주소', '전화번호', '상태', '등록일', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {companies.map(c => (
+                <tr key={c.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <td style={{ ...tdStyle, fontWeight: 500 }}>{c.name}</td>
+                  <td style={tdStyle}>{c.businessNumber ?? '-'}</td>
+                  <td style={tdStyle}>{c.address ?? '-'}</td>
+                  <td style={tdStyle}>{c.phone ?? '-'}</td>
+                  <td style={tdStyle}>{c.active ? '활성' : '비활성'}</td>
+                  <td style={tdStyle}>{new Date(c.createdAt).toLocaleDateString('ko-KR')}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <button onClick={() => setEditTarget(c)} style={editBtnStyle}>수정</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      {showCreate && <CompanyCreateModal onClose={() => { setShowCreate(false); qc.invalidateQueries({ queryKey: ['companies'] }) }} />}
+      {editTarget && <CompanyEditModal company={editTarget} onClose={() => setEditTarget(null)} />}
+    </div>
+  )
+}
+
+interface CompanyCreateFormData {
+  name: string; businessNumber: string; address: string; phone: string
+  adminEmail: string; adminName: string; adminEmployeeNumber: string
+}
+
+function CompanyCreateModal({ onClose }: { onClose: () => void }) {
+  const [form, setForm] = useState<CompanyCreateFormData>({
+    name: '', businessNumber: '', address: '', phone: '',
+    adminEmail: '', adminName: '', adminEmployeeNumber: '',
+  })
+  const set = <K extends keyof CompanyCreateFormData>(k: K, v: CompanyCreateFormData[K]) => setForm(p => ({ ...p, [k]: v }))
+
+  const mutation = useMutation({
+    mutationFn: () => createCompany({
+      name: form.name,
+      businessNumber: form.businessNumber || undefined,
+      address: form.address || undefined,
+      phone: form.phone || undefined,
+      adminEmail: form.adminEmail,
+      adminName: form.adminName,
+      adminEmployeeNumber: form.adminEmployeeNumber || undefined,
+    }),
+    onSuccess: (res) => {
+      const { temporaryPassword, adminEmail } = res.data.data
+      window.alert(
+        `회사가 등록되었습니다.\n\n관리자 이메일: ${adminEmail}\n임시 비밀번호: ${temporaryPassword}\n\n` +
+        '해당 회사 관리자에게 안전한 방법으로 전달한 뒤 최초 로그인 시 비밀번호 변경을 안내해주세요.\n' +
+        '기본 조직("본사")·근무지("본사(임시)")·근무제("기본 근무제")는 임시값이니 로그인 후 화면에서 실제 정보로 수정해주세요.'
+      )
+      onClose()
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? '등록 실패'),
+  })
+
+  return (
+    <Overlay>
+      <div style={{ background: '#fff', borderRadius: 12, padding: 32, width: 440, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: '#1e293b', marginBottom: 24 }}>회사 추가</h2>
+        <form onSubmit={e => { e.preventDefault(); mutation.mutate() }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <p style={{ fontSize: 13, fontWeight: 600, color: '#374151', margin: 0 }}>회사 정보</p>
+          <Field label="회사명">
+            <input value={form.name} onChange={e => set('name', e.target.value)} required style={inputStyle} />
+          </Field>
+          <Field label="사업자번호">
+            <input value={form.businessNumber} onChange={e => set('businessNumber', e.target.value)} style={inputStyle} />
+          </Field>
+          <Field label="주소">
+            <input value={form.address} onChange={e => set('address', e.target.value)} style={inputStyle} />
+          </Field>
+          <Field label="전화번호">
+            <input value={form.phone} onChange={e => set('phone', e.target.value)} style={inputStyle} />
+          </Field>
+          <p style={{ fontSize: 13, fontWeight: 600, color: '#374151', margin: '10px 0 0' }}>최초 관리자 계정</p>
+          <Field label="이메일">
+            <input type="email" value={form.adminEmail} onChange={e => set('adminEmail', e.target.value)} required style={inputStyle} />
+          </Field>
+          <Field label="이름">
+            <input value={form.adminName} onChange={e => set('adminName', e.target.value)} required style={inputStyle} />
+          </Field>
+          <Field label="사번">
+            <input value={form.adminEmployeeNumber} onChange={e => set('adminEmployeeNumber', e.target.value)} style={inputStyle} placeholder="SYS001 (미입력 시 자동)" />
+          </Field>
+          <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>
+            임시 비밀번호가 자동 생성되어 등록 완료 후 한 번만 화면에 표시됩니다. 최초 로그인 시 비밀번호 변경이 강제됩니다.
+          </p>
+          <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+            <button type="button" onClick={onClose} style={cancelBtnStyle}>취소</button>
+            <button type="submit" disabled={mutation.isPending} style={primaryBtnStyle}>
+              {mutation.isPending ? '등록 중...' : '등록'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </Overlay>
+  )
+}
+
+interface CompanyEditFormData { name: string; businessNumber: string; address: string; phone: string }
+
+function CompanyEditModal({ company, onClose }: { company: Company; onClose: () => void }) {
+  const qc = useQueryClient()
+  const [form, setForm] = useState<CompanyEditFormData>({
+    name: company.name, businessNumber: company.businessNumber ?? '',
+    address: company.address ?? '', phone: company.phone ?? '',
+  })
+  const set = <K extends keyof CompanyEditFormData>(k: K, v: CompanyEditFormData[K]) => setForm(p => ({ ...p, [k]: v }))
+
+  const mutation = useMutation({
+    mutationFn: () => updateCompany(company.id, {
+      name: form.name,
+      businessNumber: form.businessNumber || undefined,
+      address: form.address || undefined,
+      phone: form.phone || undefined,
+    }),
+    onSuccess: () => {
+      toast.success('수정되었습니다.')
+      qc.invalidateQueries({ queryKey: ['companies'] })
+      onClose()
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? '수정 실패'),
+  })
+
+  return (
+    <Overlay>
+      <div style={{ background: '#fff', borderRadius: 12, padding: 32, width: 400, boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: '#1e293b', marginBottom: 24 }}>회사 정보 수정</h2>
+        <form onSubmit={e => { e.preventDefault(); mutation.mutate() }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <Field label="회사명">
+            <input value={form.name} onChange={e => set('name', e.target.value)} required style={inputStyle} />
+          </Field>
+          <Field label="사업자번호">
+            <input value={form.businessNumber} onChange={e => set('businessNumber', e.target.value)} style={inputStyle} />
+          </Field>
+          <Field label="주소">
+            <input value={form.address} onChange={e => set('address', e.target.value)} style={inputStyle} />
+          </Field>
+          <Field label="전화번호">
+            <input value={form.phone} onChange={e => set('phone', e.target.value)} style={inputStyle} />
+          </Field>
+          <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+            <button type="button" onClick={onClose} style={cancelBtnStyle}>취소</button>
+            <button type="submit" disabled={mutation.isPending} style={primaryBtnStyle}>
+              {mutation.isPending ? '저장 중...' : '저장'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </Overlay>
+  )
+}
+
+// 회사 구분 없이 시스템 전체가 공유하는 로고 1장이다 — 로그인 화면은 인증 전이라 어느 회사
+// 소속인지 알 수 없으므로 회사별 로고는 애초에 불가능하다(사용자 확인 완료).
+function LogoManagementTab() {
+  const version = useLogoStore((s) => s.version)
+  const bump = useLogoStore((s) => s.bump)
+  const [file, setFile] = useState<File | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+
+  const handleSelect = (f: File | null) => {
+    setFile(f)
+    setPreviewUrl(f ? URL.createObjectURL(f) : null)
+  }
+
+  const handleUpload = async () => {
+    if (!file) { toast.error('이미지 파일을 선택해주세요.'); return }
+    setUploading(true)
+    try {
+      await uploadLogo(file)
+      bump()
+      toast.success('로고가 적용되었습니다.')
+      setFile(null)
+      setPreviewUrl(null)
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message ?? '업로드 실패')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>로고 관리</h2>
+      <p style={{ fontSize: 13, color: '#94a3b8', marginBottom: 20 }}>
+        여기서 업로드한 로고는 관리자웹 로그인 화면·좌측 메뉴 하단, 모바일 앱 로그인 화면에 공통으로 표시됩니다.
+      </p>
+      <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 6px rgba(0,0,0,0.06)', padding: 24 }}>
+        <p style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 10 }}>현재 로고</p>
+        <div style={{
+          width: 200, height: 100, border: '1px solid #e2e8f0', borderRadius: 8,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 24, background: '#f8fafc',
+        }}>
+          <img
+            src={getLogoUrl(version)}
+            alt="현재 로고"
+            style={{ maxWidth: '90%', maxHeight: '90%' }}
+            onError={e => { e.currentTarget.style.display = 'none' }}
+          />
+        </div>
+
+        <p style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 10 }}>새 로고 업로드</p>
+        <input
+          type="file"
+          accept="image/png,image/jpeg"
+          onChange={e => handleSelect(e.target.files?.[0] ?? null)}
+          style={{ fontSize: 13, marginBottom: 14 }}
+        />
+        {previewUrl && (
+          <div style={{
+            width: 200, height: 100, border: '1px solid #bfdbfe', borderRadius: 8,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14, background: '#eff6ff',
+          }}>
+            <img src={previewUrl} alt="선택한 이미지 미리보기" style={{ maxWidth: '90%', maxHeight: '90%' }} />
+          </div>
+        )}
+        <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 14 }}>PNG 또는 JPEG, 최대 2MB.</p>
+        <button onClick={handleUpload} disabled={!file || uploading} style={{ ...primaryBtnStyle, opacity: !file || uploading ? 0.5 : 1 }}>
+          {uploading ? '업로드 중...' : '업로드'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function PermissionsPage() {
-  const [tab, setTab] = useState<'codes' | 'menus'>('codes')
+  const [tab, setTab] = useState<'codes' | 'menus' | 'companies' | 'logo'>('codes')
   const { data: levels = [] } = useQuery({
     queryKey: ['common-codes', LEVEL_GROUP],
     queryFn: () => getCommonCodes(LEVEL_GROUP).then(r => r.data.data),
@@ -344,7 +605,7 @@ export default function PermissionsPage() {
     <div>
       <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1e293b', marginBottom: 24 }}>권한관리</h1>
       <div style={{ display: 'flex', gap: 8, marginBottom: 20, borderBottom: '1px solid #e2e8f0' }}>
-        {([{ key: 'codes', label: '공통코드관리' }, { key: 'menus', label: '메뉴관리' }] as const).map(t => (
+        {([{ key: 'codes', label: '공통코드관리' }, { key: 'menus', label: '메뉴관리' }, { key: 'companies', label: '회사관리' }, { key: 'logo', label: '로고관리' }] as const).map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
@@ -358,7 +619,10 @@ export default function PermissionsPage() {
           >{t.label}</button>
         ))}
       </div>
-      {tab === 'codes' ? <CommonCodeTab /> : <MenuPermissionTab levels={levels} />}
+      {tab === 'codes' ? <CommonCodeTab />
+        : tab === 'menus' ? <MenuPermissionTab levels={levels} />
+        : tab === 'companies' ? <CompanyManagementTab />
+        : <LogoManagementTab />}
     </div>
   )
 }

@@ -26,23 +26,21 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class OrganizationController {
 
-    private static final long DEFAULT_COMPANY_ID = 1L;
-
     private final OrganizationRepository organizationRepository;
     private final AuditLogService auditLogService;
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<OrganizationResponse>>> list(
-            @RequestParam(defaultValue = "1") Long companyId) {
+            @AuthenticationPrincipal UserPrincipal principal) {
         return ResponseEntity.ok(ApiResponse.ok(
-                organizationRepository.findByCompanyIdAndActive(companyId, true)
+                organizationRepository.findByCompanyIdAndActive(principal.getCompanyId(), true)
                         .stream().map(OrganizationResponse::from).toList()));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<OrganizationResponse>> get(@PathVariable Long id) {
-        Organization org = organizationRepository.findById(id)
-                .orElseThrow(() -> new AttendanceException(ErrorCode.ORGANIZATION_NOT_FOUND));
+    public ResponseEntity<ApiResponse<OrganizationResponse>> get(
+            @PathVariable Long id, @AuthenticationPrincipal UserPrincipal principal) {
+        Organization org = findOwnedOrThrow(id, principal);
         return ResponseEntity.ok(ApiResponse.ok(OrganizationResponse.from(org)));
     }
 
@@ -52,7 +50,7 @@ public class OrganizationController {
             @Valid @RequestBody OrganizationRequest req,
             @AuthenticationPrincipal UserPrincipal principal) {
         Organization org = Organization.builder()
-                .companyId(DEFAULT_COMPANY_ID)
+                .companyId(principal.getCompanyId())
                 .parentId(req.getParentId())
                 .name(req.getName())
                 .displayOrder(req.getDisplayOrder())
@@ -68,8 +66,7 @@ public class OrganizationController {
     public ResponseEntity<ApiResponse<OrganizationResponse>> update(
             @PathVariable Long id, @Valid @RequestBody OrganizationRequest req,
             @AuthenticationPrincipal UserPrincipal principal) {
-        Organization org = organizationRepository.findById(id)
-                .orElseThrow(() -> new AttendanceException(ErrorCode.ORGANIZATION_NOT_FOUND));
+        Organization org = findOwnedOrThrow(id, principal);
         String beforeName = org.getName();
         org.update(req.getName(), req.getParentId(), req.getDisplayOrder());
         org = organizationRepository.save(org);
@@ -82,12 +79,21 @@ public class OrganizationController {
     @PreAuthorize("hasAnyRole('MANAGER','HR_ADMIN','SYSTEM_ADMIN')")
     public ResponseEntity<ApiResponse<Void>> deactivate(
             @PathVariable Long id, @AuthenticationPrincipal UserPrincipal principal) {
-        Organization org = organizationRepository.findById(id)
-                .orElseThrow(() -> new AttendanceException(ErrorCode.ORGANIZATION_NOT_FOUND));
+        Organization org = findOwnedOrThrow(id, principal);
         org.deactivate();
         organizationRepository.save(org);
         auditLogService.record(principal.getId(), principal.getUsername(), "ORGANIZATION_DEACTIVATED",
                 "ORGANIZATION", id, Map.of());
         return ResponseEntity.ok(ApiResponse.ok());
+    }
+
+    // 다른 회사의 조직 id는 존재 여부 자체를 노출하지 않도록 NOT_FOUND로 처리한다(회사 경계는 서버가 강제).
+    private Organization findOwnedOrThrow(Long id, UserPrincipal principal) {
+        Organization org = organizationRepository.findById(id)
+                .orElseThrow(() -> new AttendanceException(ErrorCode.ORGANIZATION_NOT_FOUND));
+        if (!org.getCompanyId().equals(principal.getCompanyId())) {
+            throw new AttendanceException(ErrorCode.ORGANIZATION_NOT_FOUND);
+        }
+        return org;
     }
 }

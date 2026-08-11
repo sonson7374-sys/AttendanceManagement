@@ -2,7 +2,6 @@ import client from './client'
 import type { ApiResponse, Workplace, WorkplaceType } from '@/types'
 
 export interface WorkplacePayload {
-  companyId: number
   name: string
   address: string
   detailAddress?: string
@@ -17,8 +16,9 @@ export interface WorkplacePayload {
   validTo?: string
 }
 
-export const getWorkplaces = (companyId: number, includeInactive = false) =>
-  client.get<ApiResponse<Workplace[]>>('/workplaces', { params: { companyId, includeInactive } })
+// 조회 대상 회사는 서버가 로그인한 사용자의 소속 회사로 강제한다(클라이언트가 companyId를 지정할 수 없음).
+export const getWorkplaces = (includeInactive = false) =>
+  client.get<ApiResponse<Workplace[]>>('/workplaces', { params: { includeInactive } })
 
 export const createWorkplace = (payload: WorkplacePayload) =>
   client.post<ApiResponse<Workplace>>('/workplaces', payload)

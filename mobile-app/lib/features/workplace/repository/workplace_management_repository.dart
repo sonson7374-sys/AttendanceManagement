@@ -10,11 +10,12 @@ import '../model/workplace_detail_model.dart';
 class WorkplaceManagementRepository {
   final Dio _dio = DioClient.instance;
 
-  Future<List<WorkplaceDetail>> getWorkplaces(int companyId, {bool includeInactive = false}) async {
+  // 조회 대상 회사는 서버가 로그인한 사용자의 소속 회사로 강제한다(클라이언트가 companyId를 지정할 수 없음).
+  Future<List<WorkplaceDetail>> getWorkplaces({bool includeInactive = false}) async {
     try {
       final response = await _dio.get(
         ApiConstants.workplaces,
-        queryParameters: {'companyId': companyId, 'includeInactive': includeInactive},
+        queryParameters: {'includeInactive': includeInactive},
       );
       final content = response.data['data'] as List<dynamic>;
       return content.map((e) => WorkplaceDetail.fromJson(e as Map<String, dynamic>)).toList();

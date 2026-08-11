@@ -136,7 +136,7 @@ public class UserBulkImportService {
                         continue;
                     }
 
-                    Long newUserId = userService.createUser(request).getId();
+                    Long newUserId = userService.createUser(request, companyId).getId();
                     // defaultWorkplaceId는 "기본 근무지" 표시값일 뿐, 실제 출퇴근에 쓰이는 근무지
                     // 배정(user_workplaces)은 별도로 등록해야 하므로 여기서 함께 배정한다.
                     workplaceService.assignUserToWorkplace(newUserId, workplace.getId(), null, null, actorId);

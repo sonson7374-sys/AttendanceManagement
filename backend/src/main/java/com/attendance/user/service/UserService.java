@@ -152,6 +152,7 @@ public class UserService {
     private void checkSelfOrManagedTarget(User actor, Long targetUserId) {
         boolean topAdmin = actor.getRole() == UserRole.HR_ADMIN || actor.getRole() == UserRole.SYSTEM_ADMIN;
         if (topAdmin) {
+            requireSameCompany(actor, findById(targetUserId));
             return;
         }
         Set<Long> managedUserIds = organizationScopeService.resolveManagedUserIds(actor.getId());
@@ -160,13 +161,20 @@ public class UserService {
         }
     }
 
+    // 다른 회사의 사용자 id는 존재 여부 자체를 노출하지 않도록 USER_NOT_FOUND로 처리한다(회사 경계는 서버가 강제).
+    private void requireSameCompany(User actor, User target) {
+        if (!actor.getCompanyId().equals(target.getCompanyId())) {
+            throw new AttendanceException(ErrorCode.USER_NOT_FOUND);
+        }
+    }
+
     @Transactional
-    public UserResponse createUser(CreateUserRequest request) {
+    public UserResponse createUser(CreateUserRequest request, Long actorCompanyId) {
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new AttendanceException(ErrorCode.EMAIL_ALREADY_EXISTS);
         }
         if (request.getEmployeeNumber() != null &&
-                userRepository.existsByEmployeeNumber(request.getEmployeeNumber())) {
+                userRepository.existsByCompanyIdAndEmployeeNumber(actorCompanyId, request.getEmployeeNumber())) {
             throw new AttendanceException(ErrorCode.EMPLOYEE_NUMBER_ALREADY_EXISTS);
         }
 
@@ -187,7 +195,7 @@ public class UserService {
                 .name(request.getName())
                 .employeeNumber(request.getEmployeeNumber())
                 .phone(request.getPhone())
-                .companyId(request.getCompanyId())
+                .companyId(actorCompanyId)
                 .organizationId(request.getOrganizationId())
                 .jobTitle(request.getJobTitle())
                 .employmentType(request.getEmploymentType())
@@ -202,18 +210,23 @@ public class UserService {
     }
 
     @Transactional
-    public void lockUser(Long userId) {
-        findById(userId).lock();
+    public void lockUser(Long userId, Long actorId) {
+        User target = findById(userId);
+        requireSameCompany(findById(actorId), target);
+        target.lock();
     }
 
     @Transactional
-    public void unlockUser(Long userId) {
-        findById(userId).unlock();
+    public void unlockUser(Long userId, Long actorId) {
+        User target = findById(userId);
+        requireSameCompany(findById(actorId), target);
+        target.unlock();
     }
 
     @Transactional
     public void resignUser(Long userId, LocalDate resignDate, Long actorId, String actorEmail) {
         User user = findById(userId);
+        requireSameCompany(findById(actorId), user);
         user.deactivate(resignDate);
         auditLogService.record(actorId, actorEmail, "USER_RESIGNED", "USER", userId,
                 Map.of("resignDate", String.valueOf(resignDate)));
@@ -232,6 +245,7 @@ public class UserService {
             throw new AttendanceException(ErrorCode.CANNOT_DELETE_SELF);
         }
         User user = findById(userId);
+        requireSameCompany(findById(actorId), user);
         if (user.getStatus() != UserStatus.INACTIVE) {
             throw new AttendanceException(ErrorCode.USER_NOT_RESIGNED);
         }
@@ -326,6 +340,7 @@ public class UserService {
     @Transactional
     public PasswordResetResponse resetPasswordByAdmin(Long userId, Long actorId, String actorEmail) {
         User user = findById(userId);
+        requireSameCompany(findById(actorId), user);
         String temporaryPassword = UUID.randomUUID().toString().substring(0, 12);
         user.resetPasswordByAdmin(passwordEncoder.encode(temporaryPassword));
         auditLogService.record(actorId, actorEmail, "USER_PASSWORD_RESET_BY_ADMIN", "USER", userId, Map.of());
@@ -350,7 +365,8 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
-    public List<UserDeviceResponse> listDevices(Long userId) {
+    public List<UserDeviceResponse> listDevices(Long userId, Long actorId) {
+        requireSameCompany(findById(actorId), findById(userId));
         return listMyDevices(userId);
     }
 
@@ -368,7 +384,8 @@ public class UserService {
 
         User user = findById(userId);
         if (request.getEmployeeNumber() != null &&
-                userRepository.existsByEmployeeNumberAndIdNot(request.getEmployeeNumber(), userId)) {
+                userRepository.existsByCompanyIdAndEmployeeNumberAndIdNot(
+                        user.getCompanyId(), request.getEmployeeNumber(), userId)) {
             throw new AttendanceException(ErrorCode.EMPLOYEE_NUMBER_ALREADY_EXISTS);
         }
         String levelToApply = topAdmin ? request.getLevel() : user.getLevel();
@@ -388,8 +405,9 @@ public class UserService {
     }
 
     @Transactional
-    public UserResponse changeRole(Long userId, String roleName) {
+    public UserResponse changeRole(Long userId, String roleName, Long actorId) {
         User user = findById(userId);
+        requireSameCompany(findById(actorId), user);
         UserRole role;
         try {
             role = UserRole.valueOf(roleName);
@@ -437,6 +455,7 @@ public class UserService {
     @Transactional
     public void revokeDeviceByAdmin(Long actorId, String actorEmail, Long targetUserId, String deviceId) {
         User target = findById(targetUserId);
+        requireSameCompany(findById(actorId), target);
         UserDevice device = userDeviceRepository.findByUserIdAndDeviceId(targetUserId, deviceId)
                 .orElseThrow(() -> new AttendanceException(ErrorCode.RESOURCE_NOT_FOUND));
         device.revoke();

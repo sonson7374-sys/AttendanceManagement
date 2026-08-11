@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Optional;
 
 public interface OrganizationRepository extends JpaRepository<Organization, Long> {
+    List<Organization> findByCompanyId(Long companyId);
     List<Organization> findByCompanyIdAndActive(Long companyId, boolean active);
     List<Organization> findByParentId(Long parentId);
     Optional<Organization> findByCompanyIdAndName(Long companyId, String name);

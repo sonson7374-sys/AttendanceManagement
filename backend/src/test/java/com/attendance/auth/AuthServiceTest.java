@@ -3,6 +3,8 @@ package com.attendance.auth;
 import com.attendance.auth.dto.LoginRequest;
 import com.attendance.auth.jwt.JwtProperties;
 import com.attendance.auth.jwt.JwtTokenProvider;
+import com.attendance.auth.repository.BlacklistedTokenRepository;
+import com.attendance.auth.repository.RefreshTokenRepository;
 import com.attendance.auth.service.AuthService;
 import com.attendance.audit.service.AuditLogService;
 import com.attendance.common.exception.AttendanceException;
@@ -17,8 +19,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -29,7 +29,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -37,7 +36,8 @@ class AuthServiceTest {
 
     @Mock UserRepository userRepository;
     @Mock PasswordEncoder passwordEncoder;
-    @Mock RedisTemplate<String, String> redisTemplate;
+    @Mock RefreshTokenRepository refreshTokenRepository;
+    @Mock BlacklistedTokenRepository blacklistedTokenRepository;
     @Mock AuditLogService auditLogService;
 
     private AuthService authService;
@@ -54,8 +54,8 @@ class AuthServiceTest {
         SecurityPolicyProperties securityPolicyProperties = new SecurityPolicyProperties();
         securityPolicyProperties.setMaxLoginFailures(5);
 
-        authService = new AuthService(userRepository, passwordEncoder, jwtTokenProvider, redisTemplate,
-                securityPolicyProperties, auditLogService);
+        authService = new AuthService(userRepository, passwordEncoder, jwtTokenProvider, refreshTokenRepository,
+                blacklistedTokenRepository, securityPolicyProperties, auditLogService, Clock.systemUTC());
 
         testUser = User.builder()
                 .email("test@example.com")
@@ -99,10 +99,8 @@ class AuthServiceTest {
     @Test
     @DisplayName("정상 로그인 시 accessToken과 refreshToken 반환")
     void login_success() {
-        ValueOperations<String, String> valueOps = mock(ValueOperations.class);
         given(userRepository.findByEmail("test@example.com")).willReturn(Optional.of(testUser));
         given(passwordEncoder.matches(any(), any())).willReturn(true);
-        given(redisTemplate.opsForValue()).willReturn(valueOps);
 
         var response = authService.login(buildRequest("test@example.com", "pw"));
 

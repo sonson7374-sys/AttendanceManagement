@@ -37,31 +37,6 @@ services:
       - attendance-net
 
   # ─────────────────────────────────────────
-  # Redis 7
-  # ─────────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    container_name: attendance-redis
-    command: >
-      redis-server
-      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD 환경변수를 .env에 설정하세요}
-      --maxmemory 256mb
-      --maxmemory-policy allkeys-lru
-      --save ""
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - attendance-net
-
-  # ─────────────────────────────────────────
   # Spring Boot Backend
   # profile: full  (코드 준비 후 활성화)
   # ─────────────────────────────────────────
@@ -78,16 +53,14 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-attendance}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-attendance}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
-      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      LOGO_STORAGE_DIR: /data/logo
       TZ: Asia/Seoul
+    volumes:
+      - logo-data:/data/logo
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
@@ -190,11 +163,11 @@ services:
 volumes:
   postgres-data:
     driver: local
-  redis-data:
-    driver: local
   prometheus-data:
     driver: local
   grafana-data:
+    driver: local
+  logo-data:
     driver: local
 
 networks:

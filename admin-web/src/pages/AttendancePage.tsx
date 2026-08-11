@@ -15,7 +15,6 @@ import { useAuthStore } from '@/store/authStore'
 import { orgOptionLabel, buildOrgsById, sortOrgsHierarchically } from '@/utils/organizations'
 import type { AttendanceRecord, AttendanceStatus, AttendanceBoardRow, MonthlyUserSummary } from '@/types'
 
-const COMPANY_ID = 1
 const STATUS_OPTIONS: AttendanceStatus[] = [
   'BEFORE_WORK', 'WORKING', 'BREAK', 'FINISHED', 'LATE', 'EARLY_LEAVE',
   'ABSENT', 'LEAVE', 'OUTSIDE_WORK', 'BUSINESS_TRIP', 'REMOTE_WORK',
@@ -61,7 +60,7 @@ function computeLiveWorkAndBreak(row: AttendanceBoardRow, date: string): { workM
 function ManualAttendanceModal({ defaultDate, onClose }: { defaultDate: string; onClose: () => void }) {
   const queryClient = useQueryClient()
   const { data: usersPage } = useQuery({ queryKey: ['users', 0], queryFn: () => getUsers(0, 200).then(r => r.data.data) })
-  const { data: workplaces = [] } = useQuery({ queryKey: ['workplaces'], queryFn: () => getWorkplaces(COMPANY_ID).then(r => r.data.data) })
+  const { data: workplaces = [] } = useQuery({ queryKey: ['workplaces'], queryFn: () => getWorkplaces().then(r => r.data.data) })
   const users = usersPage?.content ?? []
 
   const [form, setForm] = useState({
@@ -213,8 +212,8 @@ function DailyTab() {
     queryFn: () => getAttendanceScopeInfo().then(r => r.data.data),
   })
 
-  const { data: workplaces = [] } = useQuery({ queryKey: ['workplaces'], queryFn: () => getWorkplaces(COMPANY_ID).then(r => r.data.data) })
-  const { data: organizations = [] } = useQuery({ queryKey: ['organizations', COMPANY_ID], queryFn: () => getOrganizations(COMPANY_ID).then(r => r.data.data) })
+  const { data: workplaces = [] } = useQuery({ queryKey: ['workplaces'], queryFn: () => getWorkplaces().then(r => r.data.data) })
+  const { data: organizations = [] } = useQuery({ queryKey: ['organizations'], queryFn: () => getOrganizations().then(r => r.data.data) })
   // 상위부서명 표시는 전체 조직 목록 기준으로 계산해야 한다 — 선택 가능한 목록(visibleOrganizations)만으로
   // 만들면, 본인 조직의 상위부서가 그 목록 밖에 있을 때(조회범위 밖) 이름을 못 찾는다.
   const orgsById = buildOrgsById(organizations)
@@ -414,7 +413,7 @@ function RegisterBoardTab() {
     queryKey: ['attendance-scope-info'],
     queryFn: () => getAttendanceScopeInfo().then(r => r.data.data),
   })
-  const { data: organizations = [] } = useQuery({ queryKey: ['organizations', COMPANY_ID], queryFn: () => getOrganizations(COMPANY_ID).then(r => r.data.data) })
+  const { data: organizations = [] } = useQuery({ queryKey: ['organizations'], queryFn: () => getOrganizations().then(r => r.data.data) })
   const orgsById = buildOrgsById(organizations)
 
   // scopeInfo.organizationIds가 null이면 전체 조회 가능(SYSADMIN 등), 배열이면 그 범위(본인 소속부서+하위부서)로 좁혀서 보여준다.

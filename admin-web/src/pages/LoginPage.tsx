@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/authStore'
+import { useLogoStore } from '@/store/logoStore'
+import { getLogoUrl } from '@/api/logo'
 import * as authApi from '@/api/auth'
 import toast from 'react-hot-toast'
 import uracleLogo from '@/assets/uracle-logo.png'
@@ -10,6 +12,7 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const login = useAuthStore((s) => s.login)
+  const logoVersion = useLogoStore((s) => s.version)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -40,7 +43,12 @@ export default function LoginPage() {
         background: '#fff', padding: 40, borderRadius: 12,
         boxShadow: '0 4px 24px rgba(0,0,0,0.08)', width: 380,
       }}>
-        <img src={uracleLogo} alt="uracle" style={{ height: 32, marginBottom: 20, display: 'block' }} />
+        <img
+          src={getLogoUrl(logoVersion)}
+          alt="로고"
+          style={{ height: 32, marginBottom: 20, display: 'block' }}
+          onError={e => { e.currentTarget.onerror = null; e.currentTarget.src = uracleLogo }}
+        />
         <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8, color: '#1e293b' }}>
           근태 관리 시스템
         </h1>

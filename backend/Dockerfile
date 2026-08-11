@@ -34,8 +34,11 @@ COPY --from=builder /build/build/libs/*.jar app.jar
 # 헬스체크용 curl 설치
 RUN apk add --no-cache curl
 
+# 업로드된 로고 저장 디렉터리 (docker-compose의 logo-data 볼륨 마운트 지점)
+RUN mkdir -p /data/logo
+
 # 파일 소유권 변경
-RUN chown -R attendance:attendance /app
+RUN chown -R attendance:attendance /app /data/logo
 
 USER attendance
 

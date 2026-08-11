@@ -69,7 +69,6 @@ GPS 위치와 지오펜스(Geofence)를 이용해 직원의 출근·퇴근을 �
 - Docker Compose
 - Nginx
 - PostgreSQL
-- Redis 선택
 - GitHub Actions 또는 사내 CI
 
 ---

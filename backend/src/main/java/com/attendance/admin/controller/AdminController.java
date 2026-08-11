@@ -66,8 +66,8 @@ public class AdminController {
     private final DdlExportService ddlExportService;
 
     @GetMapping("/dashboard")
-    public ResponseEntity<ApiResponse<DashboardStatsResponse>> dashboard() {
-        return ResponseEntity.ok(ApiResponse.ok(adminService.getDashboardStats()));
+    public ResponseEntity<ApiResponse<DashboardStatsResponse>> dashboard(@AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.ok(adminService.getDashboardStats(principal.getCompanyId())));
     }
 
     /**

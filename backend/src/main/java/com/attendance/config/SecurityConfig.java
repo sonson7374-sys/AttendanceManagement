@@ -2,12 +2,14 @@ package com.attendance.config;
 
 import com.attendance.auth.jwt.JwtAuthenticationFilter;
 import com.attendance.auth.jwt.JwtTokenProvider;
+import com.attendance.auth.repository.BlacklistedTokenRepository;
 import com.attendance.auth.service.CustomUserDetailsService;
 import com.attendance.common.dto.ApiResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
@@ -31,6 +33,7 @@ public class SecurityConfig {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final CustomUserDetailsService userDetailsService;
+    private final BlacklistedTokenRepository blacklistedTokenRepository;
     private final ObjectMapper objectMapper;
 
     @Bean
@@ -45,7 +48,7 @@ public class SecurityConfig {
 
     @Bean
     public JwtAuthenticationFilter jwtAuthenticationFilter() {
-        return new JwtAuthenticationFilter(jwtTokenProvider, userDetailsService);
+        return new JwtAuthenticationFilter(jwtTokenProvider, userDetailsService, blacklistedTokenRepository);
     }
 
     @Bean
@@ -56,6 +59,8 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/auth/**").permitAll()
                 .requestMatchers("/actuator/health").permitAll()
+                // 로그인 화면(인증 전)에서도 로고를 보여줘야 하므로 조회만 공개한다.
+                .requestMatchers(HttpMethod.GET, "/api/v1/logo").permitAll()
                 .anyRequest().authenticated()
             )
             .exceptionHandling(ex -> ex

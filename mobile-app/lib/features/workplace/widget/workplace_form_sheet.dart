@@ -85,7 +85,6 @@ class _WorkplaceFormSheetState extends ConsumerState<WorkplaceFormSheet> {
     setState(() => _saving = true);
     try {
       final payload = WorkplaceDetailPayload(
-        companyId: widget.workplace?.companyId ?? kCompanyId,
         name: _nameCtrl.text.trim(),
         address: _addressCtrl.text.trim(),
         detailAddress: _detailAddressCtrl.text.trim(),
