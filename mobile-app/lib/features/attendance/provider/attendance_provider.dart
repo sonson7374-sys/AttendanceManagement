@@ -21,6 +21,13 @@ Future<NearestWorkplace> resolveNearestWorkplace(
   Position position,
 ) async {
   final workplaces = await workplaceRepo.getAssignedWorkplaces();
+  return nearestWorkplaceOf(workplaces, position);
+}
+
+/// [resolveNearestWorkplace]의 순수 계산 부분만 분리한 것 — 배정 근무지 목록을 이미
+/// 갖고 있을 때(예: 홈 화면의 10초 위치 폴링이 목록을 캐시해둔 경우) 네트워크 재조회 없이
+/// 재사용하기 위함이다.
+NearestWorkplace nearestWorkplaceOf(List<Workplace> workplaces, Position position) {
   if (workplaces.isEmpty) {
     throw Exception('배정된 근무지가 없습니다. 관리자에게 문의해주세요.');
   }

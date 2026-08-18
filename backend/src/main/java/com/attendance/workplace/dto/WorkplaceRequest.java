@@ -11,9 +11,6 @@ import java.time.LocalDate;
 @NoArgsConstructor
 public class WorkplaceRequest {
 
-    @NotNull(message = "회사를 선택해주세요.")
-    private Long companyId;
-
     @NotBlank(message = "근무지명을 입력해주세요.")
     private String name;
 

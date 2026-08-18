@@ -258,12 +258,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
               ),
             ),
-            // 시스템 공용 로고(관리자웹에서 업로드) — 미업로드 상태면 아무것도 그리지 않는다.
+            // 로그인 화면용 로고(관리자웹 권한관리 > 로고관리에서 업로드) — 미업로드 상태면 아무것도 그리지 않는다.
             Positioned(
               top: 16,
               left: 16,
               child: Image.network(
-                '${ApiConstants.baseUrl}${ApiConstants.logo}',
+                '${ApiConstants.baseUrl}${ApiConstants.loginLogo}',
                 height: 40,
                 errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
               ),

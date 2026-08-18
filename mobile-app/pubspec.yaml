@@ -35,6 +35,9 @@ dependencies:
   intl: ^0.19.0
   table_calendar: ^3.1.2
 
+  # 근무지관리 화면의 카카오맵(관리자웹 지도 페이지를 임베드)
+  webview_flutter: ^4.10.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -11,9 +11,14 @@ import '../../auth/provider/auth_provider.dart';
 import '../../notification/provider/notification_provider.dart';
 import '../../menu/widget/app_menu_drawer.dart';
 import '../../menu/widget/app_menu_leading_button.dart';
+import '../../workplace/widget/kakao_map_view.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../core/utils/kst.dart';
+
+/// 실시간 위치 지도 갱신 주기. 배터리 소모와 반응성의 절충으로 10초를 택했다(진짜 연속
+/// 스트림 대신 화면이 켜져 있는 동안만 폴링).
+const _kLocationPollInterval = Duration(seconds: 10);
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -26,6 +31,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _isActionLoading = false;
   String? _userName;
   Timer? _pollTimer;
+  Timer? _locationPollTimer;
 
   @override
   void initState() {
@@ -38,11 +44,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _pollTimer = Timer.periodic(const Duration(hours: 1), (_) {
       ref.read(todayAttendanceProvider.notifier).load(silent: true);
     });
+    // 출근하기 버튼 아래 실시간 위치 지도용 — 배정 근무지 목록은 캐시를 재사용하고
+    // GPS 위치만 다시 잰다(refreshPositionOnly). 화면을 벗어나면 dispose()에서 멈춘다.
+    _locationPollTimer = Timer.periodic(_kLocationPollInterval, (_) {
+      ref.read(liveLocationProvider.notifier).refreshPositionOnly();
+    });
   }
 
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _locationPollTimer?.cancel();
     super.dispose();
   }
 
@@ -215,6 +227,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 .endBreak(),
                           ),
                         ),
+                        const SizedBox(height: 16),
+                        const _LiveMapCard(),
                         if (attendance.checkInAt != null) ...[
                           const SizedBox(height: 16),
                           _TimelineCard(attendance: attendance),
@@ -312,6 +326,69 @@ class _LocationCard extends ConsumerWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// "출근하기" 버튼 아래 실시간 위치 지도. 근무지관리 화면과 같은 [KakaoMapView]를 재사용하되,
+/// 배정 근무지(고정 좌표, 마커+지오펜스 원)와 내 현재 위치(움직이는 파란 점)를 함께 보여준다.
+/// 지도(WebView) 자체는 배정 근무지가 바뀌지 않는 한 다시 만들지 않고, 위치 갱신은
+/// [KakaoMapViewState.setDevicePosition]으로만 반영해 매번 다시 로드되어 깜빡이는 것을 막는다.
+class _LiveMapCard extends ConsumerStatefulWidget {
+  const _LiveMapCard();
+
+  @override
+  ConsumerState<_LiveMapCard> createState() => _LiveMapCardState();
+}
+
+class _LiveMapCardState extends ConsumerState<_LiveMapCard> {
+  var _mapKey = GlobalKey<KakaoMapViewState>();
+  // 마지막으로 성공한 위치 정보를 보관한다. liveLocationProvider는 10초 폴링마다 잠깐
+  // AsyncLoading으로 바뀌는데(값이 없는 순수 loading 상태), 그때마다 지도를 placeholder로
+  // 바꿔치기하면 KakaoMapView(WebView)가 매번 사라졌다 다시 생성되어 계속 새로 로드된다.
+  // 그래서 로딩/에러 tick은 무시하고 이 값을 계속 화면에 유지한다.
+  LiveLocationInfo? _lastInfo;
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen<AsyncValue<LiveLocationInfo?>>(liveLocationProvider, (previous, next) {
+      final info = next.valueOrNull;
+      if (info == null) return; // 로딩 중이거나 이번 tick이 에러 — 마지막 위치를 그대로 유지.
+      if (info.workplace.id != _lastInfo?.workplace.id) {
+        // 배정 근무지가 바뀐 경우(드묾)에만 새 GlobalKey로 지도를 다시 만들어 지오펜스 원
+        // 좌표를 갱신한다. setState로 build()를 다시 태워야 새 KakaoMapView가 반영된다.
+        setState(() {
+          _lastInfo = info;
+          _mapKey = GlobalKey<KakaoMapViewState>();
+        });
+      } else {
+        _lastInfo = info;
+        _mapKey.currentState?.setDevicePosition(info.latitude, info.longitude);
+      }
+    });
+
+    final info = _lastInfo ?? ref.read(liveLocationProvider).valueOrNull;
+    if (info == null) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Text('위치를 확인하면 지도가 표시됩니다.', style: TextStyle(fontSize: 13)),
+        ),
+      );
+    }
+    _lastInfo = info;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: KakaoMapView(
+        key: _mapKey,
+        latitude: info.workplace.latitude,
+        longitude: info.workplace.longitude,
+        radiusMeters: info.workplace.radiusMeters,
+        deviceLatitude: info.latitude,
+        deviceLongitude: info.longitude,
+        height: 220,
       ),
     );
   }

@@ -6,6 +6,16 @@ class ApiConstants {
     defaultValue: 'http://10.0.2.2:8080/api/v1',
   );
 
+  // 근무지관리 화면의 카카오맵이 로드할 관리자웹(React) 오리진. 개발환경은 Vite 개발서버(포트 3000),
+  // 운영환경은 nginx가 admin-web과 API를 같은 오리진에서 서빙하므로 배포 도메인으로 덮어쓴다.
+  static const String webAppBaseUrl = String.fromEnvironment(
+    'WEB_APP_BASE_URL',
+    defaultValue: 'http://10.0.2.2:3000',
+  );
+
+  // 인증이 필요 없는 순수 지도 페이지(관리자웹 KakaoMap 재사용) — 쿼리파라미터로 좌표/반경/편집여부를 전달.
+  static const String kakaoMapEmbedPath = '/embed/kakao-map';
+
   static const Duration connectTimeout = Duration(seconds: 10);
   static const Duration receiveTimeout = Duration(seconds: 20);
 
@@ -74,8 +84,9 @@ class ApiConstants {
   // 조직 (직원 등록/수정 폼의 소속 조직 선택용, 관리자웹과 동일한 API)
   static const String organizations = '/organizations';
 
-  // 시스템 공용 로고 (인증 없이 조회 가능, 관리자웹과 동일한 API)
-  static const String logo = '/logo';
+  // 로그인 화면용 시스템 공용 로고 (인증 없이 조회 가능, 관리자웹과 동일한 API).
+  // 관리자웹 사이드바용 로고와는 별개로 관리되는 슬롯이다.
+  static const String loginLogo = '/logo/login';
 }
 
 class StorageKeys {

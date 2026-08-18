@@ -64,7 +64,7 @@ class _EmployeeAssignmentSheetState extends ConsumerState<EmployeeAssignmentShee
     final currentScheduleAsync = ref.watch(userCurrentScheduleProvider(widget.employee.id));
     final allSchedulesAsync = ref.watch(workScheduleListProvider(false));
     final userWorkplacesAsync = ref.watch(userWorkplacesProvider(widget.employee.id));
-    final allWorkplacesAsync = ref.watch(workplaceListProvider((false, false)));
+    final allWorkplacesAsync = ref.watch(allCompanyWorkplacesProvider);
 
     return DraggableScrollableSheet(
       initialChildSize: 0.85,

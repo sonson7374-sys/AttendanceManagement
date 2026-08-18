@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../model/workplace_change_request_model.dart';
 import '../model/workplace_detail_model.dart';
+import 'kakao_map_view.dart';
 import 'workplace_form_sheet.dart';
 
 String _formatMonthDay(String dateStr) {
@@ -8,9 +9,8 @@ String _formatMonthDay(String dateStr) {
   return '${d.month}월 ${d.day}일';
 }
 
-/// 관리자웹 WorkplaceCard와 동일한 정보(이름/주소/유형/출퇴근 허용/좌표·반경)를 보여주고,
-/// 권한에 따라 수정·직원배정관리·삭제·변경요청 버튼을 노출한다. 지도 미리보기는 좌표 텍스트로 대체한다
-/// (카카오맵 JS 키는 웹 전용이라 모바일에서 재사용할 수 없음).
+/// 관리자웹 WorkplaceCard와 동일한 정보(이름/주소/유형/출퇴근 허용/좌표·반경, 읽기 전용 지도)를 보여주고,
+/// 권한에 따라 수정·직원배정관리·삭제·변경요청 버튼을 노출한다.
 class WorkplaceCard extends StatelessWidget {
   const WorkplaceCard({
     super.key,
@@ -105,6 +105,13 @@ class WorkplaceCard extends StatelessWidget {
                 if (!workplace.checkInAllowed) const _Chip(text: '출근 불가', color: Colors.red),
                 if (!workplace.checkOutAllowed) const _Chip(text: '퇴근 불가', color: Colors.red),
               ],
+            ),
+            const SizedBox(height: 12),
+            KakaoMapView(
+              latitude: workplace.latitude,
+              longitude: workplace.longitude,
+              radiusMeters: workplace.radiusMeters,
+              height: 160,
             ),
             const SizedBox(height: 12),
             Row(

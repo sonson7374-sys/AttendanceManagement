@@ -60,7 +60,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/auth/**").permitAll()
                 .requestMatchers("/actuator/health").permitAll()
                 // 로그인 화면(인증 전)에서도 로고를 보여줘야 하므로 조회만 공개한다.
-                .requestMatchers(HttpMethod.GET, "/api/v1/logo").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/logo/**").permitAll()
                 .anyRequest().authenticated()
             )
             .exceptionHandling(ex -> ex

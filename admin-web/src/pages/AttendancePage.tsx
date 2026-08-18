@@ -13,6 +13,7 @@ import { getWorkplaces } from '@/api/workplaces'
 import { getOrganizations } from '@/api/organizations'
 import { useAuthStore } from '@/store/authStore'
 import { orgOptionLabel, buildOrgsById, sortOrgsHierarchically } from '@/utils/organizations'
+import { todayKst } from '@/utils/dateKst'
 import type { AttendanceRecord, AttendanceStatus, AttendanceBoardRow, MonthlyUserSummary } from '@/types'
 
 const STATUS_OPTIONS: AttendanceStatus[] = [
@@ -148,7 +149,7 @@ function SelfMonthlyView() {
   const [month, setMonth] = useState(now.getMonth() + 1)
 
   const from = `${year}-${String(month).padStart(2, '0')}-01`
-  const to = new Date(year, month, 0).toISOString().slice(0, 10)
+  const to = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10)
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ['my-attendance-history-monthly', from, to],
@@ -198,7 +199,7 @@ function SelfMonthlyView() {
 }
 
 function DailyTab() {
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [date, setDate] = useState(() => todayKst())
   const [showManual, setShowManual] = useState(false)
   const [workplaceId, setWorkplaceId] = useState('')
   const [organizationId, setOrganizationId] = useState('')
@@ -394,7 +395,7 @@ function AttendanceReasonBar({
 
 function RegisterBoardTab() {
   const queryClient = useQueryClient()
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [date, setDate] = useState(() => todayKst())
   const [organizationId, setOrganizationId] = useState('')
   const [employeeName, setEmployeeName] = useState('')
   const [edits, setEdits] = useState<Record<number, BoardEdit>>({})

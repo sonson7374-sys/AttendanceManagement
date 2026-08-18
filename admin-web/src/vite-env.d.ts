@@ -19,6 +19,7 @@ interface Window {
       LatLng: new (lat: number, lng: number) => KakaoLatLng
       Marker: new (options: object) => KakaoMarker
       Circle: new (options: object) => KakaoCircle
+      CustomOverlay: new (options: object) => KakaoCustomOverlay
       services: {
         Geocoder: new () => KakaoGeocoder
         Status: { OK: string; ZERO_RESULT: string; ERROR: string }
@@ -41,6 +42,10 @@ interface KakaoMarker {
   setPosition: (latlng: KakaoLatLng) => void
 }
 interface KakaoCircle {
+  setMap: (map: KakaoMap | null) => void
+  setPosition: (latlng: KakaoLatLng) => void
+}
+interface KakaoCustomOverlay {
   setMap: (map: KakaoMap | null) => void
   setPosition: (latlng: KakaoLatLng) => void
 }

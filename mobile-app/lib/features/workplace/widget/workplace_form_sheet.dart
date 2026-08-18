@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../model/workplace_detail_model.dart';
 import '../provider/workplace_management_provider.dart';
+import '../widget/kakao_map_view.dart';
 import '../../../core/network/dio_client.dart';
 
 const List<(WorkplaceType, String)> kWorkplaceTypeOptions = [
@@ -13,7 +14,8 @@ const List<(WorkplaceType, String)> kWorkplaceTypeOptions = [
 ];
 
 /// 근무지 등록/수정 폼. 관리자웹 CreateWorkplaceModal/EditWorkplaceModal과 동일한 필드 구성이며,
-/// 지도 미리보기 대신 좌표를 직접 입력한다(카카오맵 JS 키는 웹 전용이라 모바일에서 재사용할 수 없음).
+/// 지도(카카오맵)로 클릭·드래그·주소검색으로 좌표를 지정할 수 있다. 위도/경도 숫자 입력도 그대로
+/// 유지해 지도가 로드되지 않는 경우에도 등록할 수 있게 한다.
 class WorkplaceFormSheet extends ConsumerStatefulWidget {
   const WorkplaceFormSheet({super.key, this.workplace});
 
@@ -35,6 +37,8 @@ class _WorkplaceFormSheetState extends ConsumerState<WorkplaceFormSheet> {
   late bool _checkInAllowed;
   late bool _checkOutAllowed;
   bool _saving = false;
+  bool _searchingAddress = false;
+  final _mapKey = GlobalKey<KakaoMapViewState>();
 
   bool get _isNew => widget.workplace == null;
 
@@ -116,6 +120,55 @@ class _WorkplaceFormSheetState extends ConsumerState<WorkplaceFormSheet> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  Future<void> _searchAddress() async {
+    final address = _addressCtrl.text.trim();
+    if (address.isEmpty) {
+      _showError('주소를 입력해주세요.');
+      return;
+    }
+    setState(() => _searchingAddress = true);
+    _mapKey.currentState?.searchAddress(address);
+  }
+
+  void _onAddressResolved(double latitude, double longitude, String addressName) {
+    if (!mounted) return;
+    setState(() {
+      _searchingAddress = false;
+      _latCtrl.text = latitude.toStringAsFixed(6);
+      _lngCtrl.text = longitude.toStringAsFixed(6);
+    });
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('좌표를 찾았습니다: $addressName')));
+  }
+
+  void _onMapError(String message) {
+    if (!mounted) return;
+    setState(() => _searchingAddress = false);
+    _showError(message);
+  }
+
+  void _onMapPositionChanged(double latitude, double longitude) {
+    if (!mounted) return;
+    setState(() {
+      _latCtrl.text = latitude.toStringAsFixed(6);
+      _lngCtrl.text = longitude.toStringAsFixed(6);
+    });
+  }
+
+  void _syncMapPosition() {
+    final lat = double.tryParse(_latCtrl.text.trim());
+    final lng = double.tryParse(_lngCtrl.text.trim());
+    if (lat != null && lng != null) {
+      _mapKey.currentState?.setPosition(lat, lng);
+    }
+  }
+
+  void _syncMapRadius() {
+    final radius = int.tryParse(_radiusCtrl.text.trim());
+    if (radius != null) {
+      _mapKey.currentState?.updateRadius(radius);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -146,9 +199,25 @@ class _WorkplaceFormSheetState extends ConsumerState<WorkplaceFormSheet> {
               onChanged: (v) => setState(() => _type = v!),
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: _addressCtrl,
-              decoration: const InputDecoration(labelText: '주소', border: OutlineInputBorder()),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _addressCtrl,
+                    decoration: const InputDecoration(labelText: '주소', border: OutlineInputBorder()),
+                    onSubmitted: (_) => _searchAddress(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: OutlinedButton(
+                    onPressed: _searchingAddress ? null : _searchAddress,
+                    child: Text(_searchingAddress ? '검색 중...' : '주소 검색'),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             TextField(
@@ -163,6 +232,7 @@ class _WorkplaceFormSheetState extends ConsumerState<WorkplaceFormSheet> {
                     controller: _latCtrl,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
                     decoration: const InputDecoration(labelText: '위도', border: OutlineInputBorder()),
+                    onChanged: (_) => _syncMapPosition(),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -171,6 +241,7 @@ class _WorkplaceFormSheetState extends ConsumerState<WorkplaceFormSheet> {
                     controller: _lngCtrl,
                     keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
                     decoration: const InputDecoration(labelText: '경도', border: OutlineInputBorder()),
+                    onChanged: (_) => _syncMapPosition(),
                   ),
                 ),
               ],
@@ -183,6 +254,7 @@ class _WorkplaceFormSheetState extends ConsumerState<WorkplaceFormSheet> {
                     controller: _radiusCtrl,
                     keyboardType: TextInputType.number,
                     decoration: const InputDecoration(labelText: '반경(m)', border: OutlineInputBorder()),
+                    onChanged: (_) => _syncMapRadius(),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -219,6 +291,23 @@ class _WorkplaceFormSheetState extends ConsumerState<WorkplaceFormSheet> {
               ],
             ),
             const SizedBox(height: 8),
+            Text(
+              '지도를 클릭하거나 마커를 드래그해 좌표를 지정할 수 있습니다',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 6),
+            KakaoMapView(
+              key: _mapKey,
+              latitude: double.tryParse(_latCtrl.text.trim()) ?? 37.5665,
+              longitude: double.tryParse(_lngCtrl.text.trim()) ?? 126.9780,
+              radiusMeters: int.tryParse(_radiusCtrl.text.trim()) ?? 100,
+              editable: true,
+              height: 200,
+              onPositionChanged: _onMapPositionChanged,
+              onAddressResolved: _onAddressResolved,
+              onError: _onMapError,
+            ),
+            const SizedBox(height: 16),
             Row(
               children: [
                 Expanded(

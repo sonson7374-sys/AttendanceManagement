@@ -12,7 +12,7 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const login = useAuthStore((s) => s.login)
-  const logoVersion = useLogoStore((s) => s.version)
+  const logoVersion = useLogoStore((s) => s.version.login)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -44,7 +44,7 @@ export default function LoginPage() {
         boxShadow: '0 4px 24px rgba(0,0,0,0.08)', width: 380,
       }}>
         <img
-          src={getLogoUrl(logoVersion)}
+          src={getLogoUrl('login', logoVersion)}
           alt="로고"
           style={{ height: 32, marginBottom: 20, display: 'block' }}
           onError={e => { e.currentTarget.onerror = null; e.currentTarget.src = uracleLogo }}

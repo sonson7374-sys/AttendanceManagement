@@ -13,8 +13,10 @@ import '../../menu/widget/app_menu_leading_button.dart';
 import '../../../core/network/dio_client.dart';
 import '../../../core/storage/secure_storage.dart';
 
-/// 근무지 관리 화면. 관리자웹 WorkplacesPage와 동일한 권한 규칙을 따른다:
-/// - EMPLOYEE는 본인 배정 근무지만 보고, 등록·수정·배정·삭제는 노출되지 않으며 변경요청만 가능하다.
+/// 근무지 관리 화면. 목록은 관리자웹과 달리 역할과 무관하게 항상 본인에게 배정된 근무지만
+/// 보여준다(SYSTEM_ADMIN 포함) — [workplaceListProvider] 참고. 관리 권한은 관리자웹
+/// WorkplacesPage와 동일한 규칙을 따른다:
+/// - EMPLOYEE는 등록·수정·배정·삭제가 노출되지 않으며 변경요청만 가능하다.
 /// - 등록/수정은 menu_permissions의 workplaces:CREATE/EDIT 설정과 EMPLOYEE가 아님을 함께 확인한다.
 /// - 삭제(비활성화)/복구는 서버 정책과 동일하게 SYSTEM_ADMIN만 가능하다.
 class WorkplacesScreen extends ConsumerStatefulWidget {
@@ -27,7 +29,6 @@ class WorkplacesScreen extends ConsumerStatefulWidget {
 class _WorkplacesScreenState extends ConsumerState<WorkplacesScreen> {
   bool _loadingUser = true;
   String? _role;
-  bool _showInactive = false;
 
   @override
   void initState() {
@@ -68,7 +69,7 @@ class _WorkplacesScreenState extends ConsumerState<WorkplacesScreen> {
         final canCreate = !isPlainEmployee && isActionEnabled(overrides, 'workplaces', 'CREATE');
         final canEdit = !isPlainEmployee && isActionEnabled(overrides, 'workplaces', 'EDIT');
 
-        final workplacesAsync = ref.watch(workplaceListProvider((isPlainEmployee, _showInactive)));
+        final workplacesAsync = ref.watch(workplaceListProvider);
         final myRequestsAsync = isPlainEmployee ? ref.watch(myWorkplaceChangeRequestsProvider) : const AsyncValue.data(<WorkplaceChangeRequest>[]);
 
         return Column(
@@ -77,19 +78,7 @@ class _WorkplacesScreenState extends ConsumerState<WorkplacesScreen> {
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
               child: Row(
                 children: [
-                  if (canManage)
-                    Expanded(
-                      child: CheckboxListTile(
-                        value: _showInactive,
-                        onChanged: (v) => setState(() => _showInactive = v ?? false),
-                        title: const Text('삭제된 근무지 포함', style: TextStyle(fontSize: 13)),
-                        contentPadding: EdgeInsets.zero,
-                        controlAffinity: ListTileControlAffinity.leading,
-                        dense: true,
-                      ),
-                    )
-                  else
-                    const Spacer(),
+                  const Spacer(),
                   if (canCreate)
                     FilledButton.icon(
                       onPressed: () => _openCreate(context),
@@ -236,8 +225,7 @@ class _WorkplacesScreenState extends ConsumerState<WorkplacesScreen> {
   }
 
   void _refreshWorkplaces() {
-    final isPlainEmployee = _role == 'EMPLOYEE';
-    ref.invalidate(workplaceListProvider((isPlainEmployee, _showInactive)));
+    ref.invalidate(workplaceListProvider);
   }
 
   void _showError(String message) {

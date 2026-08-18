@@ -8,6 +8,7 @@ import { getMenuPermissionsByRole, upsertMenuPermission } from '@/api/menuPermis
 import { getCompanies, createCompany, updateCompany } from '@/api/companies'
 import type { Company } from '@/api/companies'
 import { getLogoUrl, uploadLogo } from '@/api/logo'
+import type { LogoType } from '@/api/logo'
 import { useLogoStore } from '@/store/logoStore'
 import toast from 'react-hot-toast'
 
@@ -520,10 +521,35 @@ function CompanyEditModal({ company, onClose }: { company: Company; onClose: () 
   )
 }
 
-// 회사 구분 없이 시스템 전체가 공유하는 로고 1장이다 — 로그인 화면은 인증 전이라 어느 회사
-// 소속인지 알 수 없으므로 회사별 로고는 애초에 불가능하다(사용자 확인 완료).
+// 로그인 화면(관리자웹 로그인 페이지 + 모바일 앱 로그인 화면)용과 관리자웹 좌측 메뉴 하단용을
+// 서로 다른 이미지로 독립 관리한다 — 각 위치가 서로 다른 크기/배경을 갖기 때문이다(사용자 확인 완료).
+// 회사 구분은 없다 — 로그인 화면은 인증 전이라 어느 회사 소속인지 알 수 없으므로 회사별 로고는
+// 애초에 불가능하다.
 function LogoManagementTab() {
-  const version = useLogoStore((s) => s.version)
+  return (
+    <div>
+      <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>로고 관리</h2>
+      <p style={{ fontSize: 13, color: '#94a3b8', marginBottom: 20 }}>
+        로그인 화면용 로고와 좌측 메뉴 하단용 로고를 각각 따로 업로드할 수 있습니다.
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <LogoUploadCard
+          type="login"
+          title="로그인 화면 로고"
+          description="관리자웹 로그인 화면과 모바일 앱 로그인 화면(좌측 상단)에 표시됩니다."
+        />
+        <LogoUploadCard
+          type="sidebar"
+          title="좌측 메뉴 하단 로고"
+          description="관리자웹 로그인 후 좌측 메뉴 하단에 표시됩니다."
+        />
+      </div>
+    </div>
+  )
+}
+
+function LogoUploadCard({ type, title, description }: { type: LogoType; title: string; description: string }) {
+  const version = useLogoStore((s) => s.version[type])
   const bump = useLogoStore((s) => s.bump)
   const [file, setFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -538,8 +564,8 @@ function LogoManagementTab() {
     if (!file) { toast.error('이미지 파일을 선택해주세요.'); return }
     setUploading(true)
     try {
-      await uploadLogo(file)
-      bump()
+      await uploadLogo(type, file)
+      bump(type)
       toast.success('로고가 적용되었습니다.')
       setFile(null)
       setPreviewUrl(null)
@@ -551,45 +577,42 @@ function LogoManagementTab() {
   }
 
   return (
-    <div>
-      <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>로고 관리</h2>
-      <p style={{ fontSize: 13, color: '#94a3b8', marginBottom: 20 }}>
-        여기서 업로드한 로고는 관리자웹 로그인 화면·좌측 메뉴 하단, 모바일 앱 로그인 화면에 공통으로 표시됩니다.
-      </p>
-      <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 6px rgba(0,0,0,0.06)', padding: 24 }}>
-        <p style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 10 }}>현재 로고</p>
-        <div style={{
-          width: 200, height: 100, border: '1px solid #e2e8f0', borderRadius: 8,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 24, background: '#f8fafc',
-        }}>
-          <img
-            src={getLogoUrl(version)}
-            alt="현재 로고"
-            style={{ maxWidth: '90%', maxHeight: '90%' }}
-            onError={e => { e.currentTarget.style.display = 'none' }}
-          />
-        </div>
+    <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 6px rgba(0,0,0,0.06)', padding: 24 }}>
+      <p style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>{title}</p>
+      <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16 }}>{description}</p>
 
-        <p style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 10 }}>새 로고 업로드</p>
-        <input
-          type="file"
-          accept="image/png,image/jpeg"
-          onChange={e => handleSelect(e.target.files?.[0] ?? null)}
-          style={{ fontSize: 13, marginBottom: 14 }}
+      <p style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 10 }}>현재 로고</p>
+      <div style={{
+        width: 200, height: 100, border: '1px solid #e2e8f0', borderRadius: 8,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 24, background: '#f8fafc',
+      }}>
+        <img
+          src={getLogoUrl(type, version)}
+          alt="현재 로고"
+          style={{ maxWidth: '90%', maxHeight: '90%' }}
+          onError={e => { e.currentTarget.style.display = 'none' }}
         />
-        {previewUrl && (
-          <div style={{
-            width: 200, height: 100, border: '1px solid #bfdbfe', borderRadius: 8,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14, background: '#eff6ff',
-          }}>
-            <img src={previewUrl} alt="선택한 이미지 미리보기" style={{ maxWidth: '90%', maxHeight: '90%' }} />
-          </div>
-        )}
-        <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 14 }}>PNG 또는 JPEG, 최대 2MB.</p>
-        <button onClick={handleUpload} disabled={!file || uploading} style={{ ...primaryBtnStyle, opacity: !file || uploading ? 0.5 : 1 }}>
-          {uploading ? '업로드 중...' : '업로드'}
-        </button>
       </div>
+
+      <p style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 10 }}>새 로고 업로드</p>
+      <input
+        type="file"
+        accept="image/png,image/jpeg"
+        onChange={e => handleSelect(e.target.files?.[0] ?? null)}
+        style={{ fontSize: 13, marginBottom: 14 }}
+      />
+      {previewUrl && (
+        <div style={{
+          width: 200, height: 100, border: '1px solid #bfdbfe', borderRadius: 8,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14, background: '#eff6ff',
+        }}>
+          <img src={previewUrl} alt="선택한 이미지 미리보기" style={{ maxWidth: '90%', maxHeight: '90%' }} />
+        </div>
+      )}
+      <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 14 }}>PNG 또는 JPEG, 최대 2MB.</p>
+      <button onClick={handleUpload} disabled={!file || uploading} style={{ ...primaryBtnStyle, opacity: !file || uploading ? 0.5 : 1 }}>
+        {uploading ? '업로드 중...' : '업로드'}
+      </button>
     </div>
   )
 }

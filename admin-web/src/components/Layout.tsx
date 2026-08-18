@@ -30,7 +30,7 @@ const NAV_ITEMS = [
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { userId, name, level, accessToken, logout } = useAuthStore()
-  const logoVersion = useLogoStore((s) => s.version)
+  const logoVersion = useLogoStore((s) => s.version.sidebar)
   const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -126,7 +126,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
         <div style={{ padding: '14px 20px', display: 'flex', justifyContent: 'center', background: '#fff' }}>
           <img
-            src={getLogoUrl(logoVersion)}
+            src={getLogoUrl('sidebar', logoVersion)}
             alt="로고"
             style={{ height: 20 }}
             onError={e => { e.currentTarget.onerror = null; e.currentTarget.src = uracleLogo }}

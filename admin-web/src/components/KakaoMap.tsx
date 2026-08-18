@@ -7,10 +7,15 @@ interface Props {
   height?: number
   editable?: boolean
   onPositionChange?: (latitude: number, longitude: number) => void
+  /** 근무지(마커+원)와는 별개로 표시할 "내 위치" 파란 점. 출퇴근 화면의 실시간 GPS 표시용. */
+  myLatitude?: number
+  myLongitude?: number
 }
 
 const MAP_API_KEY = import.meta.env.VITE_MAP_API_KEY
 const HAS_KEY = MAP_API_KEY && MAP_API_KEY !== 'your_kakao_map_javascript_api_key_here'
+
+window.alert = (msg?: unknown) => console.error('[KakaoMap] window.alert() called:', msg)
 
 let kakaoScriptPromise: Promise<void> | null = null
 
@@ -21,7 +26,9 @@ function loadKakaoScript(): Promise<void> {
   kakaoScriptPromise = new Promise((resolve, reject) => {
     const script = document.createElement('script')
     // services 라이브러리를 포함해야 주소 검색(Geocoder)을 사용할 수 있다.
-    script.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${MAP_API_KEY}&autoload=false&libraries=services`
+    // 프로토콜을 https로 명시한다(상대 프로토콜(//)로 두면 모바일 앱 WebView처럼 페이지 자체를
+    // http로 여는 환경에서 이 스크립트도 http로 요청되어 클리어텍스트 차단에 걸린다).
+    script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${MAP_API_KEY}&autoload=false&libraries=services`
     script.onload = () => window.kakao.maps.load(resolve)
     script.onerror = () => {
       kakaoScriptPromise = null
@@ -61,9 +68,14 @@ export function geocodeAddress(
   )
 }
 
-export default function KakaoMap({ latitude, longitude, radiusMeters, height = 200, editable = false, onPositionChange }: Props) {
+export default function KakaoMap({
+  latitude, longitude, radiusMeters, height = 200, editable = false, onPositionChange,
+  myLatitude, myLongitude,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState(false)
+  const mapRef = useRef<KakaoMap | null>(null)
+  const myOverlayRef = useRef<KakaoCustomOverlay | null>(null)
 
   useEffect(() => {
     if (!HAS_KEY || !containerRef.current) return
@@ -72,9 +84,11 @@ export default function KakaoMap({ latitude, longitude, radiusMeters, height = 2
     loadKakaoScript()
       .then(() => {
         if (!mounted || !containerRef.current) return
-        const { Map, LatLng, Marker, Circle, event } = window.kakao.maps
+        const { Map, LatLng, Marker, Circle, CustomOverlay, event } = window.kakao.maps
         const center = new LatLng(latitude, longitude)
         const map = new Map(containerRef.current, { center, level: 3 })
+        mapRef.current = map
+        console.error('[KakaoMap] map created, origin=', window.location.origin)
         const marker = new Marker({ map, position: center, draggable: editable })
         marker.setMap(map)
         const circle = new Circle({
@@ -88,6 +102,18 @@ export default function KakaoMap({ latitude, longitude, radiusMeters, height = 2
           fillOpacity: 0.1,
         })
         circle.setMap(map)
+
+        // 근무지 마커·원과는 별개인 "내 위치" 파란 점 — 최초 좌표가 있으면 여기서 한 번만
+        // 생성해두고, 이후 좌표 변경은 아래의 별도 effect가 setPosition()만 호출해 옮긴다
+        // (이 effect 전체를 다시 실행하면 지도를 통째로 다시 그리게 되어 실시간 갱신에 부적합).
+        if (myLatitude != null && myLongitude != null) {
+          myOverlayRef.current = new CustomOverlay({
+            map,
+            position: new LatLng(myLatitude, myLongitude),
+            content: '<div style="width:14px;height:14px;border-radius:50%;background:#2563eb;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.5);"></div>',
+            zIndex: 10,
+          })
+        }
 
         if (editable && onPositionChange) {
           event.addListener(marker, 'dragend', () => {
@@ -104,10 +130,22 @@ export default function KakaoMap({ latitude, longitude, radiusMeters, height = 2
           })
         }
       })
-      .catch(() => setError(true))
+      .catch((e) => {
+        console.error('[KakaoMap] load failed:', e)
+        setError(true)
+      })
 
     return () => { mounted = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- myLatitude/myLongitude는 최초 생성 시에만 쓰고,
+    // 이후 갱신은 아래의 별도 effect가 담당한다(지도를 다시 그리지 않기 위해 의도적으로 제외).
   }, [latitude, longitude, radiusMeters, editable])
+
+  // "내 위치" 파란 점만 갱신 — 지도/마커/원은 다시 만들지 않는다(실시간 위치 폴링처럼
+  // 자주 호출돼도 깜빡이지 않도록).
+  useEffect(() => {
+    if (myLatitude == null || myLongitude == null || !myOverlayRef.current) return
+    myOverlayRef.current.setPosition(new window.kakao.maps.LatLng(myLatitude, myLongitude))
+  }, [myLatitude, myLongitude])
 
   if (!HAS_KEY) {
     return (

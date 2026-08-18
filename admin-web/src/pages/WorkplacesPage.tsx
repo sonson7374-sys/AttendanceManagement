@@ -8,6 +8,7 @@ import type { Workplace, User, WorkplaceType, WorkplaceChangeRequest } from '@/t
 import KakaoMap, { geocodeAddress } from '@/components/KakaoMap'
 import { useAuthStore } from '@/store/authStore'
 import { usePermissions } from '@/hooks/usePermissions'
+import { useIsNarrowViewport } from '@/hooks/useIsNarrowViewport'
 import toast from 'react-hot-toast'
 
 const WORKPLACE_TYPE_OPTIONS: { value: WorkplaceType; label: string }[] = [
@@ -27,6 +28,7 @@ interface CreateFormData {
 
 function CreateWorkplaceModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient()
+  const isNarrow = useIsNarrowViewport()
   const [form, setForm] = useState<CreateFormData>({
     name: '', address: '', detailAddress: '', type: 'OFFICE',
     latitude: '37.5665', longitude: '126.9780', radiusMeters: '100', maxAccuracyMeters: '',
@@ -69,7 +71,7 @@ function CreateWorkplaceModal({ onClose }: { onClose: () => void }) {
 
   return (
     <Overlay>
-      <div style={{ background: '#fff', borderRadius: 12, padding: 32, width: 500, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}>
+      <div style={{ background: '#fff', borderRadius: 12, padding: 32, width: isNarrow ? '100%' : 500, maxWidth: '100%', boxSizing: 'border-box', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 24, color: '#1e293b' }}>근무지 등록</h2>
         <form onSubmit={e => { e.preventDefault(); mutation.mutate() }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Field label="근무지명">
@@ -100,7 +102,7 @@ function CreateWorkplaceModal({ onClose }: { onClose: () => void }) {
           <Field label="상세 주소">
             <input value={form.detailAddress} onChange={e => set('detailAddress', e.target.value)} style={inputStyle} placeholder="예: 3층 사무실" />
           </Field>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
             <Field label="위도">
               <input value={form.latitude} onChange={e => set('latitude', e.target.value)} required style={inputStyle} />
             </Field>
@@ -111,7 +113,7 @@ function CreateWorkplaceModal({ onClose }: { onClose: () => void }) {
               <input type="number" value={form.radiusMeters} onChange={e => set('radiusMeters', e.target.value)} min={10} max={5000} required style={inputStyle} />
             </Field>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
             <Field label="허용 정확도(m)">
               <input type="number" value={form.maxAccuracyMeters} onChange={e => set('maxAccuracyMeters', e.target.value)} min={1} style={inputStyle} placeholder="기본값 사용" />
             </Field>
@@ -156,6 +158,7 @@ function CreateWorkplaceModal({ onClose }: { onClose: () => void }) {
 // ─── 직원 배정 모달 ─────────────────────────────────────────
 function AssignUserModal({ workplace, onClose }: { workplace: Workplace; onClose: () => void }) {
   const queryClient = useQueryClient()
+  const isNarrow = useIsNarrowViewport()
   const [selectedUserId, setSelectedUserId] = useState<number | ''>('')
   const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<number>>(new Set())
   const [bulkMode, setBulkMode] = useState(false)
@@ -213,7 +216,7 @@ function AssignUserModal({ workplace, onClose }: { workplace: Workplace; onClose
 
   return (
     <Overlay>
-      <div style={{ background: '#fff', borderRadius: 12, padding: 32, width: 480, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}>
+      <div style={{ background: '#fff', borderRadius: 12, padding: 32, width: isNarrow ? '100%' : 480, maxWidth: '100%', boxSizing: 'border-box', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4, color: '#1e293b' }}>직원 배정</h2>
@@ -422,6 +425,7 @@ function WorkplaceCard({ workplace, onAssign, onEdit, onDelete, onRestore, onPer
 // ─── 근무지 편집 모달 ───────────────────────────────────────
 function EditWorkplaceModal({ workplace, onClose }: { workplace: Workplace; onClose: () => void }) {
   const queryClient = useQueryClient()
+  const isNarrow = useIsNarrowViewport()
   const [form, setForm] = useState({
     name: workplace.name, address: workplace.address ?? '', detailAddress: workplace.detailAddress ?? '',
     type: workplace.type, latitude: String(workplace.latitude), longitude: String(workplace.longitude),
@@ -463,7 +467,7 @@ function EditWorkplaceModal({ workplace, onClose }: { workplace: Workplace; onCl
 
   return (
     <Overlay>
-      <div style={{ background: '#fff', borderRadius: 12, padding: 32, width: 500, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}>
+      <div style={{ background: '#fff', borderRadius: 12, padding: 32, width: isNarrow ? '100%' : 500, maxWidth: '100%', boxSizing: 'border-box', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 24, color: '#1e293b' }}>근무지 수정</h2>
         <form onSubmit={e => { e.preventDefault(); mutation.mutate() }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Field label="근무지명"><input value={form.name} onChange={e => set('name', e.target.value)} required style={inputStyle} /></Field>
@@ -491,12 +495,12 @@ function EditWorkplaceModal({ workplace, onClose }: { workplace: Workplace; onCl
           <Field label="상세 주소">
             <input value={form.detailAddress} onChange={e => set('detailAddress', e.target.value)} style={inputStyle} />
           </Field>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
             <Field label="위도"><input value={form.latitude} onChange={e => set('latitude', e.target.value)} required style={inputStyle} /></Field>
             <Field label="경도"><input value={form.longitude} onChange={e => set('longitude', e.target.value)} required style={inputStyle} /></Field>
             <Field label="반경(m)"><input type="number" value={form.radiusMeters} onChange={e => set('radiusMeters', e.target.value)} min={10} max={5000} required style={inputStyle} /></Field>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isNarrow ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
             <Field label="허용 정확도(m)">
               <input type="number" value={form.maxAccuracyMeters} onChange={e => set('maxAccuracyMeters', e.target.value)} min={1} style={inputStyle} placeholder="기본값 사용" />
             </Field>
@@ -536,6 +540,7 @@ function EditWorkplaceModal({ workplace, onClose }: { workplace: Workplace; onCl
 // 새 근무지를 직접 등록하는 대신 신청만 하고, 관리자 승인함에서 승인되면 실제로 반영된다.
 function WorkplaceChangeRequestModal({ currentWorkplace, onClose }: { currentWorkplace: Workplace; onClose: () => void }) {
   const queryClient = useQueryClient()
+  const isNarrow = useIsNarrowViewport()
   const [form, setForm] = useState({
     name: currentWorkplace.name, address: currentWorkplace.address ?? '', detailAddress: currentWorkplace.detailAddress ?? '',
     latitude: String(currentWorkplace.latitude), longitude: String(currentWorkplace.longitude),
@@ -587,7 +592,7 @@ function WorkplaceChangeRequestModal({ currentWorkplace, onClose }: { currentWor
 
   return (
     <Overlay>
-      <div style={{ background: '#fff', borderRadius: 12, padding: 32, width: 500, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}>
+      <div style={{ background: '#fff', borderRadius: 12, padding: 32, width: isNarrow ? '100%' : 500, maxWidth: '100%', boxSizing: 'border-box', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.12)' }}>
         <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4, color: '#1e293b' }}>근무지 변경요청</h2>
         <p style={{ fontSize: 13, color: '#64748b', marginBottom: 24 }}>기존: {currentWorkplace.name}</p>
         <form onSubmit={e => { e.preventDefault(); mutation.mutate() }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -782,7 +787,7 @@ export default function WorkplacesPage() {
 // ─── 공용 스타일 헬퍼 ───────────────────────────────────────
 function Overlay({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16, boxSizing: 'border-box' }}>
       {children}
     </div>
   )

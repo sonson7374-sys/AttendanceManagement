@@ -15,6 +15,7 @@ import AuditLogPage from '@/pages/AuditLogPage'
 import PermissionsPage from '@/pages/PermissionsPage'
 import MyAttendancePage from '@/pages/MyAttendancePage'
 import SchedulesPage from '@/pages/SchedulesPage'
+import MobileMapEmbedPage from '@/pages/MobileMapEmbedPage'
 import { usePermissions } from '@/hooks/usePermissions'
 
 const queryClient = new QueryClient({
@@ -41,6 +42,8 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          {/* 모바일 앱 WebView(근무지관리 화면의 카카오맵)가 로드하는 인증 불필요 지도 페이지 */}
+          <Route path="/embed/kakao-map" element={<MobileMapEmbedPage />} />
           <Route path="/" element={
             <ProtectedRoute><DashboardGate /></ProtectedRoute>
           } />
